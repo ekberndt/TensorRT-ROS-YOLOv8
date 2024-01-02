@@ -138,6 +138,12 @@ std::vector<Object> YoloV8::detectObjects(const cv::cuda::GpuMat &inputImageBGR)
     return ret;
 }
 
+/**
+ * Uploads the input image to GPU memory and calls detectObjects(...) on the GPU image.
+ * 
+ * @param inputImageBGR The input image in BGR format.
+ * @return A vector of detected objects.
+ */
 std::vector<Object> YoloV8::detectObjects(const cv::Mat &inputImageBGR) {
     // Upload the image to GPU memory
     cv::cuda::GpuMat gpuImg;
@@ -147,7 +153,15 @@ std::vector<Object> YoloV8::detectObjects(const cv::Mat &inputImageBGR) {
     return detectObjects(gpuImg);
 }
 
+/**
+ * Performs post-processing on the segmentation feature vectors.
+ * 
+ * @param featureVectors The 2D feature vectors to be processed.
+ * @return A vector of Object instances representing the post-processed segmentation results.
+ * @throws std::logic_error If the feature vectors are not of the expected length.
+ */
 std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<float>>& featureVectors) {
+    // Retrieve the output dimensions
     const auto& outputDims = m_trtEngine->getOutputDims();
 
     int numChannels = outputDims[outputDims.size() - 1].d[1];
@@ -211,6 +225,7 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
     }
 
     // Require OpenCV 4.7 for this function
+    // Perform Non-Maximum Suppression to remove overlapping bounding boxes
     cv::dnn::NMSBoxesBatched(
             bboxes,
             scores,
@@ -221,6 +236,7 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
     );
 
     // Obtain the segmentation masks
+    // Extract the top k bounding boxes
     cv::Mat masks;
     std::vector<Object> objs;
     int cnt = 0;

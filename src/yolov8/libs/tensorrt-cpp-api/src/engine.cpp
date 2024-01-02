@@ -32,6 +32,16 @@ void Logger::log(Severity severity, const char *msg) noexcept {
 Engine::Engine(const Options &options)
     : m_options(options) {}
 
+/**
+ * Builds the TensorRT engine using the specified ONNX model file and engine options.
+ * 
+ * @param onnxModelPath The path to the ONNX model file.
+ * @param subVals The array of subtraction values used for input preprocessing.
+ * @param divVals The array of division values used for input preprocessing.
+ * @param normalize Flag indicating whether input normalization should be applied.
+ * @return True if the engine is successfully built and saved, false otherwise.
+ * @throws std::runtime_error if the model file is not found or if there are errors during engine generation.
+ */
 bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVals, const std::array<float, 3>& divVals,
                    bool normalize) {
     m_subVals = subVals;
@@ -493,6 +503,13 @@ cv::cuda::GpuMat Engine::resizeKeepAspectRatioPadRightBottom(const cv::cuda::Gpu
     return out;
 }
 
+/**
+ * Moves input feature vector to the output vector to change 3D vector to 2D vector.
+ * 
+ * @param input The input feature vector to be moved.
+ * @param output The output vector to store the feature vector.
+ * @throws std::logic_error if the input feature vector has incorrect dimensions.
+ */
 void Engine::transformOutput(std::vector<std::vector<std::vector<float>>>& input, std::vector<std::vector<float>>& output) {
     if (input.size() != 1) {
         throw std::logic_error("The feature vector has incorrect dimensions!");
