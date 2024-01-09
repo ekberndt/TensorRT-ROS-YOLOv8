@@ -6,13 +6,13 @@ def generate_launch_description():
         Node(
             package='yolov8',
             executable='ros_segmentation',
-            name='yolov8',
-            remappings=[
-                ('/vimba_front_left_center/image', '/camera0/image')
-            ],
-            parameters=[
-                {'--model': 'best.onnx'},
-                {'--input': 'frame_017144_PNG.rf.cc8d12902369beac022e401776258747.jpg'}
+            # name='yolov8',
+            # remappings=[
+                # ('/vimba_front_left_center/image', '/vimba_front_left_center/image')
+            # ],
+            arguments=[
+                '--model', '/home/ekberndt/Documents/iac/race_common_yolov8/164-164-v1-car-label.onnx',
+                '--input', '/home/ekberndt/Documents/iac/race_common_yolov8/test_putnum.png',
             ]
         )
     ])

@@ -50,9 +50,10 @@ std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(const cv::cuda::Gp
     // Populate the input vectors
     const auto& inputDims = m_trtEngine->getInputDims();
 
-    // Convert the image from BGR to RGB
-    cv::cuda::GpuMat rgbMat;
-    cv::cuda::cvtColor(gpuImg, rgbMat, cv::COLOR_BGR2RGB);
+    // Convert the image from BGR to RGB TODO: remove this
+    cv::cuda::GpuMat rgbMat = gpuImg;
+    // cv::cuda::GpuMat rgbMat;
+    // cv::cuda::cvtColor(gpuImg, rgbMat, cv::COLOR_BGR2RGB);
 
     auto resized = rgbMat;
 

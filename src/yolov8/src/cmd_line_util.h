@@ -219,6 +219,10 @@ inline bool parseArguments(int argc, char* argv[], YoloV8Config& config, std::st
                 config.classNames = values;
             }
 
+            else if (flag == "ros-args") {
+                std::cout << "Throwing away --ros-args" << std::endl;
+            }
+
             else {
                 std::cout << "Error: Unknown flag '" << flag << "'" << std::endl;
                 showHelp(argv);
@@ -394,6 +398,10 @@ inline bool parseArgumentsVideo(int argc, char* argv[], YoloV8Config& config, st
                 }
 
                 config.classNames = values;
+            }
+
+            else if (flag == "--ros-args") {
+                std::cout << "Throwing away --ros-args" << std::endl;
             }
 
             else {

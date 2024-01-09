@@ -5,7 +5,13 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
+# Use the correct version of CUDA
+set(CUDA_TOOLKIT_ROOT_DIR "/usr/local/cuda-11.8")
+
+# Set CMAKE_CUDA_COMPILER to the correct version of nvcc
+set(CMAKE_CUDA_COMPILER "/usr/local/cuda-11.8/bin/nvcc")
+
+# Find dependencies
 find_package(ament_cmake_auto REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -36,9 +42,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Ofast -DNDEBUG -Wno-deprecated-de
 # if (ENABLE_BENCHMARKS)
 #     add_compile_definitions(ENABLE_BENCHMARKS)
 # endif()
-set(OpenCV_DIR libs/tensorrt-cpp-api/scripts/opencv-4.8.0/build)
+# set(OpenCV_DIR libs/tensorrt-cpp-api/scripts/opencv-4.8.0/build)
 
-find_package(OpenCV 4.8.0 REQUIRED)
+# find_package(OpenCV 4.8.0 REQUIRED)
 
 # TODO: Specify the path to TensorRT root dir
 set(TensorRT_DIR /home/cyrus/work/libs/TensorRT-8.6.1.6/)
