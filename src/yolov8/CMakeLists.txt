@@ -42,12 +42,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Ofast -DNDEBUG -Wno-deprecated-de
 # if (ENABLE_BENCHMARKS)
 #     add_compile_definitions(ENABLE_BENCHMARKS)
 # endif()
-# set(OpenCV_DIR libs/tensorrt-cpp-api/scripts/opencv-4.8.0/build)
-
-# find_package(OpenCV 4.8.0 REQUIRED)
-
-# TODO: Specify the path to TensorRT root dir
-set(TensorRT_DIR /home/cyrus/work/libs/TensorRT-8.6.1.6/)
 
 # Build the TensorRT inference engine library
 # TensorRT is found and linked by the tensorrt-cpp-api
@@ -58,23 +52,14 @@ add_library(YoloV8_TRT SHARED src/yolov8.cpp)
 target_link_libraries(YoloV8_TRT PUBLIC tensorrt_cpp_api ${OpenCV_LIBS})
 target_include_directories(YoloV8_TRT PUBLIC libs/tensorrt-cpp-api/src)
 
-# Build and link the executables
-# add_executable(detect_object_image src/object_detection_image.cpp)
-# target_link_libraries(detect_object_image YoloV8_TRT)
-
-# add_executable(benchmark src/benchmark.cpp)
-# target_link_libraries(benchmark YoloV8_TRT)
-
-# add_executable(detect_object_video src/object_detection_video_stream.cpp)
-# target_link_libraries(detect_object_video YoloV8_TRT)
-
 add_executable(ros_segmentation src/ros_segmentation.cpp)
 ament_target_dependencies(ros_segmentation rclcpp sensor_msgs cv_bridge yolov8_interfaces)
 target_link_libraries(ros_segmentation YoloV8_TRT)
 
 install(TARGETS
   ros_segmentation
-  DESTINATION lib/${PROJECT_NAME})
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 install(
   DIRECTORY include/
@@ -88,12 +73,13 @@ install(TARGETS
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
-  # DESTINATION lib/${PROJECT_NAME}
+  DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install the launch files.
+# Install the launch files and config files
 install(DIRECTORY
   launch
+  config
   DESTINATION share/${PROJECT_NAME}/
 )
 

@@ -1,1 +1,0 @@
-yolov8_interfaces/YOLOv8Obj[] objects

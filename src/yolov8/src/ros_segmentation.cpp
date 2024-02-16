@@ -3,10 +3,11 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "cv_bridge/cv_bridge.hpp"
-// #include "yolov8_interfaces/msg/YOLOv8Obj.hpp"
-// #include "yolov8_interfaces/msg/YOLOv8Seg.hpp"
-#include "yolov8_interfaces/msg/yol_ov8_seg.hpp" // TODO: Why are the msg names wrong? 
-#include "yolov8_interfaces/msg/yol_ov8_obj.hpp"
+// Custom ROS2 message types where the names of the hpp files are snake_case
+#include "yolov8_interfaces/msg/point2_d.hpp"
+#include "yolov8_interfaces/msg/yolov8_detections.hpp"
+#include "yolov8_interfaces/msg/yolov8_seg_mask.hpp"
+#include "yolov8_interfaces/msg/yolov8_b_box.hpp"
 
 using std::placeholders::_1;
 
@@ -19,7 +20,12 @@ class YoloV8Node : public rclcpp::Node
             subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
             "/vimba_front_right_center/image", 10, std::bind(&YoloV8Node::camera_callback, this, _1));
 
-            publisher_ = this->create_publisher<yolov8_interfaces::msg::YOLOv8Seg>("/yolov8", 10);
+            // rclcpp::Publisher::yolov8_interfaces::msg::YOLOv8Seg>::SharedPtr("/yolov8/dectections", 10);
+            // rclcpp::Publisher::<sensor_msgs::msg::Image>::SharedPtr("/yolov8/Image", 10);
+
+            // Do these need to be shared pointers?
+            detection_publisher_ = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>("/yolov8/detections", 10);
+            image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/yolov8/Image", 10);
         }
 
     private:
@@ -52,58 +58,99 @@ class YoloV8Node : public rclcpp::Node
                 // Run inference
                 const auto objects = yoloV8_.detectObjects(img);
 
-                // Draw the bounding boxes on the image
-                yoloV8_.drawObjectLabels(img, objects);
+                // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
+                // RCLCPP_INFO(this->get_logger(), "Mask Shape: %s", objects[0].boxMask.size());
 
+                // Create vector to store binary masks for each segmentation object
+                std::vector<cv::Mat> detectedMasks;
+
+                // Draw the bounding boxes on the image and store the binary masks
+                yoloV8_.drawObjectLabels(img, objects, detectedMasks);
+                // yoloV8_.drawObjectLabels(img, objects);
                 RCLCPP_INFO(this->get_logger(), "Detected %zu objects", objects.size());
+                RCLCPP_INFO(this->get_logger(), "Detected %zu masks", detectedMasks.size());
 
                 // Convert detected objects to ROS message
-                yolov8_interfaces::msg::YOLOv8Seg msg;
-
+                yolov8_interfaces::msg::Yolov8Detections detectionMsg;
+                
                 for (auto & object : objects) {
                     int label = object.label;
                     float prob = object.probability;
 
                     // Bounding box
-                    int rect_x = object.rect.x;
-                    int rect_y = object.rect.y + 1;
-                    int rect_width = object.rect.width;
-                    int rect_height = object.rect.height;
+                    // int rect_x = object.rect.x;
+                    // int rect_y = object.rect.y + 1;
 
-                    // Semantic segmentation mask
-
+                    // Segmentation mask
                     // int box_mask_rows = object.boxMask.rows;
                     // int box_mask_cols = object.boxMask.cols;
                     // int box_mask_data = object.boxMask.data;
 
-                    cv::Mat mask = img.clone();
-                    cv::Scalar color = cv::Scalar(1, 1, 1);
-                    mask(object.rect).setTo(color * 255, object.boxMask);
-                    // cv::addWeighted(image, 0.0, mask, 1, 1, image);
-
-                    // Create yolov8_obj message
-                    yolov8_interfaces::msg::YOLOv8Obj obj_msg;
-                    obj_msg.label = label;
-                    obj_msg.probability = prob;
-                    obj_msg.rect_x = rect_x;
-                    obj_msg.rect_y = rect_y;
-                    obj_msg.rect_width = rect_width;
-                    obj_msg.rect_height = rect_height;
-
-                    // Add YOLOv8Obj message to YOLOv8Seg message
-                    msg.objects.push_back(obj_msg);
-                }
-                publisher_->publish(msg);
-
-                // Save the annotated image
-                if (!objects.empty()) {
-                    const auto outputName = "test_annotated.jpg";
-                    if (!cv::imwrite(outputName, img)) {
-                        RCLCPP_ERROR(this->get_logger(), "Failed to save annotated image");
-                        return;
+                    // Place each binary mask into the ROS message
+                    sensor_msgs::msg::Image binaryMaskMsg;
+                    cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>();
+                    if (!detectedMasks.empty()) {
+                        cv_image->image = detectedMasks.back();
+                        detectedMasks.pop_back();
+                    } else {
+                        RCLCPP_ERROR(this->get_logger(), "detectedMasks vector is empty");
                     }
-                    std::cout << "Saved annotated image to: " << outputName << std::endl;
+                    cv_image->encoding = "bgr8";
+                    cv_image->header.frame_id = image->header.frame_id;
+                    // Turn cv_image into sensor_msgs::msg::Image
+                    cv_image->toImageMsg(binaryMaskMsg);
+
+                    // Place the contours into the message
+                    // for (auto & points : object.contours) {
+                    //     yolov8_interfaces::msg::Point2D point2DMsg;
+                    //     // TODO: Check if this is the correct way to access the x and y values
+                    //     for 
+                    //     point2DMsg.x = point.x;
+                    //     point2DMsg.y = point.y;
+                    //     segMaskMsg.contours.push_back(point2DMsg);
+                    // }
+
+                    // Create yolov8_obj bounding box message
+                    yolov8_interfaces::msg::Yolov8BBox bBoxMsg;
+                    yolov8_interfaces::msg::Point2D point2DMsg;
+                    bBoxMsg.label = label;
+                    bBoxMsg.probability = prob;
+                    bBoxMsg.top_left.x = point2DMsg.x;
+                    bBoxMsg.top_left.y = point2DMsg.y;
+                    bBoxMsg.rect_width = object.rect.width;
+                    bBoxMsg.rect_height = object.rect.height;
+
+                    // Add segmentation masks and bouding boxes to yolov8detections message
+                    detectionMsg.masks.push_back(binaryMaskMsg);
+                    detectionMsg.bounding_boxes.push_back(bBoxMsg);
                 }
+
+                // Publish segmented image as ROS message
+                sensor_msgs::msg::Image displayImageMsg;
+
+                cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>();
+                cv_image->image = img.clone(); // TODO: Change this to mask? Too many copies?
+                cv_image->encoding = "bgr8";
+                cv_image->header.frame_id = image->header.frame_id;
+                // Turn cv_image into sensor_msgs::msg::Image
+                cv_image->toImageMsg(displayImageMsg);
+                // msg.segmented_image.header = image->header; // TODO fix header
+                // msg.segmented_image.header.stamp = rclcpp::Time(image->header.stamp.sec, image->header.stamp.nanosec);
+                // TODO: Do we need to set the Stamp as it 0 in the original vimba image?
+                displayImageMsg.header.stamp = rclcpp::Time(image->header.stamp.sec, image->header.stamp.nanosec);
+
+                // Publish the messages
+                detection_publisher_->publish(detectionMsg);
+                image_publisher_->publish(displayImageMsg);
+
+                // // Save the annotated image
+                // if (!objects.empty()) {
+                //     const auto outputName = "test_annotated.jpg";
+                //     if (!cv::imwrite(outputName, img)) {
+                //         RCLCPP_ERROR(this->get_logger(), "Failed to save annotated image");
+                //         return;
+                //     }
+                // }
                 
             } catch (cv::Exception& e) {
                 RCLCPP_ERROR(this->get_logger(), "cv exception: %s", e.what());
@@ -111,7 +158,8 @@ class YoloV8Node : public rclcpp::Node
             }
         }
         rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
-        rclcpp::Publisher<yolov8_interfaces::msg::YOLOv8Seg>::SharedPtr publisher_;
+        rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr detection_publisher_;
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
         YoloV8& yoloV8_;
         };
 
@@ -128,9 +176,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Create the YoloV8 engine
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Creating YoloV8 engine");
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Creating YoloV8 engine --- Could take a while if Engine file is not already built and cached.");
     YoloV8 yoloV8(onnxModelPath, config);
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "YoloV8 engine created");
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "YoloV8 engine created and initialized.");
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<YoloV8Node>(yoloV8));
     rclcpp::shutdown();

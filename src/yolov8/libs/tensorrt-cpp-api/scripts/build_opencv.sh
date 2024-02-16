@@ -1,4 +1,4 @@
-VERSION=4.8.0
+VERSION=4.5.4
 
 test -e ${VERSION}.zip || wget https://github.com/opencv/opencv/archive/refs/tags/${VERSION}.zip
 test -e opencv-${VERSION} || unzip ${VERSION}.zip
@@ -38,5 +38,10 @@ cmake -D CMAKE_BUILD_TYPE=RELEASE \
 -D CUDNN_LIBRARY=/usr/lib/x86_64-linux-gnu/libcudnn.so \
 ..
 
+# Compiles
 make -j 8
+# Installs system wide
 sudo make -j 8 install
+# To undo the install (in the case you are causing conflicts with another version of OpenCV), run
+# $ sudo make uninstall
+# in the build folder (where you ran the make install command)

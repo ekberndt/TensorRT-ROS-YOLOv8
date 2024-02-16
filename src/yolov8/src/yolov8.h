@@ -17,6 +17,8 @@ struct Object {
     cv::Rect_<float> rect;
     // Semantic segmentation mask
     cv::Mat boxMask;
+    // Contours of semantic segmentation mask
+    std::vector<std::vector<cv::Point>> contours;
     // Pose estimation key points
     std::vector<float> kps{};
 };
@@ -61,6 +63,10 @@ public:
 
     // Draw the object bounding boxes and labels on the image
     void drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, unsigned int scale = 2);
+
+    // Draw the object bounding boxes and labels on the image and store a binary mask in the given
+    // masks vector for each instance segmentation object.
+    void drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, std::vector<cv::Mat> &masks, unsigned int scale = 2);
 private:
     // Preprocess the input
     std::vector<std::vector<cv::cuda::GpuMat>> preprocess(const cv::cuda::GpuMat& gpuImg);

@@ -284,7 +284,10 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
                     cv::Size(static_cast<int>(m_imgWidth), static_cast<int>(m_imgHeight)),
                     cv::INTER_LINEAR
             );
+            // Convert to binary mask for pixels above segmentation threshold
             objs[i].boxMask = mask(objs[i].rect) > SEGMENTATION_THRESHOLD;
+            // // Generate contours of binary mask
+            // cv::findContours(objs[i].boxMask, objs[i].contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
         }
     }
 
@@ -442,6 +445,16 @@ std::vector<Object> YoloV8::postprocessDetect(std::vector<float> &featureVector)
     return objects;
 }
 
+
+/**
+ * @brief Draws object labels on the given image.
+ * 
+ * This function takes an input image and a vector of detected objects, and draws bounding boxes, labels, and masks (if available) on the image.
+ * 
+ * @param image The input image on which the object labels will be drawn.
+ * @param objects A vector of objects containing information about the objects detected in the image.
+ * @param scale The scale factor to adjust the size of the thickness of the bounding box lines and font size of text.
+ */
 void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, unsigned int scale) {
     // If segmentation information is present, start with that
     if (!objects.empty() && !objects[0].boxMask.empty()) {
@@ -457,6 +470,111 @@ void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects
             mask(object.rect).setTo(color * 255, object.boxMask);
         }
         // Add all the masks to our image
+        cv::addWeighted(image, 0.5, mask, 0.8, 1, image);
+    }
+
+    // Bounding boxes and annotations
+    for (auto & object : objects) {
+        // Choose the color
+		int colorIndex = object.label % COLOR_LIST.size(); // We have only defined 80 unique colors
+        cv::Scalar color = cv::Scalar(COLOR_LIST[colorIndex][0],
+                                      COLOR_LIST[colorIndex][1],
+                                      COLOR_LIST[colorIndex][2]);
+        float meanColor = cv::mean(color)[0];
+        cv::Scalar txtColor;
+        if (meanColor > 0.5){
+            txtColor = cv::Scalar(0, 0, 0);
+        }else{
+            txtColor = cv::Scalar(255, 255, 255);
+        }
+
+        const auto& rect = object.rect;
+
+        // Draw rectangles and text
+        char text[256];
+        sprintf(text, "%s %.1f%%", CLASS_NAMES[object.label].c_str(), object.probability * 100);
+
+        int baseLine = 0;
+        cv::Size labelSize = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.35 * scale, scale, &baseLine);
+
+        cv::Scalar txt_bk_color = color * 0.7 * 255;
+
+        int x = object.rect.x;
+        int y = object.rect.y + 1;
+
+        cv::rectangle(image, rect, color * 255, scale + 1);
+
+        cv::rectangle(image, cv::Rect(cv::Point(x, y), cv::Size(labelSize.width, labelSize.height + baseLine)),
+                      txt_bk_color, -1);
+
+        cv::putText(image, text, cv::Point(x, y + labelSize.height), cv::FONT_HERSHEY_SIMPLEX, 0.35 * scale, txtColor, scale);
+
+        // Pose estimation
+        if (!object.kps.empty()) {
+            auto& kps = object.kps;
+            for (int k = 0; k < NUM_KPS + 2; k++) {
+                if (k < NUM_KPS) {
+                    int   kpsX = std::round(kps[k * 3]);
+                    int   kpsY = std::round(kps[k * 3 + 1]);
+                    float kpsS = kps[k * 3 + 2];
+                    if (kpsS > KPS_THRESHOLD) {
+                        cv::Scalar kpsColor = cv::Scalar(KPS_COLORS[k][0], KPS_COLORS[k][1], KPS_COLORS[k][2]);
+                        cv::circle(image, {kpsX, kpsY}, 5, kpsColor, -1);
+                    }
+                }
+                auto& ske    = SKELETON[k];
+                int   pos1X = std::round(kps[(ske[0] - 1) * 3]);
+                int   pos1Y = std::round(kps[(ske[0] - 1) * 3 + 1]);
+
+                int pos2X = std::round(kps[(ske[1] - 1) * 3]);
+                int pos2Y = std::round(kps[(ske[1] - 1) * 3 + 1]);
+
+                float pos1S = kps[(ske[0] - 1) * 3 + 2];
+                float pos2S = kps[(ske[1] - 1) * 3 + 2];
+
+                if (pos1S > KPS_THRESHOLD && pos2S > KPS_THRESHOLD) {
+                    cv::Scalar limbColor = cv::Scalar(LIMB_COLORS[k][0], LIMB_COLORS[k][1], LIMB_COLORS[k][2]);
+                    cv::line(image, {pos1X, pos1Y}, {pos2X, pos2Y}, limbColor, 2);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * @brief Function overload to draw object labels on the given image.
+ * 
+ * This function takes an input image, a vector of detected objects, and a vector to store masks
+ * and draws bounding boxes, labels, and masks (if available) on the image and stores a binary mask in the given
+ * masks vector for each instance segmentation object.
+ * 
+ * @param image The input image on which the object labels will be drawn.
+ * @param objects A vector of objects containing information about the objects detected in the image.
+ * @param masks A vector of binary masks representing each detected instance segmentation object.
+ * @param scale The scale factor to adjust the size of the thickness of the bounding box lines and font size of text.
+ */
+void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, std::vector<cv::Mat> &masks, unsigned int scale) {
+    // If segmentation information is present, start with that
+    if (!objects.empty() && !objects[0].boxMask.empty()) {
+        cv::Mat mask = image.clone();
+        for (const auto& object: objects) {
+            // Draw masks on image to display to user
+            // Choose the color
+            int colorIndex = object.label % COLOR_LIST.size(); // We have only defined 80 unique colors
+            cv::Scalar color = cv::Scalar(COLOR_LIST[colorIndex][0],
+                                          COLOR_LIST[colorIndex][1],
+                                          COLOR_LIST[colorIndex][2]);
+
+            // Add the mask for said object
+            mask(object.rect).setTo(color * 255, object.boxMask);
+
+            // Create binary mask for each object
+            cv::Mat binaryMask = cv::Mat::zeros(image.size(), CV_8UC3);
+            // Set the binary mask to 1 where the object is
+            binaryMask(object.rect).setTo(1, object.boxMask);
+            masks.push_back(binaryMask);
+        }
+        // Add all the masks to our display image
         cv::addWeighted(image, 0.5, mask, 0.8, 1, image);
     }
 

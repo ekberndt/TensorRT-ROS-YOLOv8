@@ -11,8 +11,8 @@ def generate_launch_description():
                 # ('/vimba_front_left_center/image', '/vimba_front_left_center/image')
             # ],
             arguments=[
-                '--model', '/home/ekberndt/Documents/iac/race_common_yolov8/164-164-v1-car-label.onnx',
-                '--input', '/home/ekberndt/Documents/iac/race_common_yolov8/test_putnum.png',
+                '--model', '/home/ekberndt/Documents/iac/race_common_yolov8/src/perception/yolov8/models/164-164-v1-car-label.onnx',
+                '--input', '/home/ekberndt/Documents/iac/race_common_yolov8/test_putnum.jpg',
             ]
         )
     ])
