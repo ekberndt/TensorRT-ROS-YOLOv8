@@ -2,6 +2,27 @@
 ## Overview
 A TensorRT ROS2 package for realtime instance segmentation in C++ using finetuned YOLOv8. This package is designed to be used with ROS2 Iron and Ubuntu 22.04.
 
+This packages assumes you have already finetuned a YoLOv8 model and have the ONNX model file.
+
+## ROS2 Messages
+### yolov8/Image
+This topic is a `sensor_msgs/Image` image and is used to visualize the output of the intance segmentation and bounding boxes in RViz2.
+
+### yolov8/detections
+This topic publishes a custom `yolov8_interfaces/msg/Detection` message which contains the class label, class probability, class name, segmentation mask, and bounding box for each detected object. Everything in this message is in the same order as the detected objects in the image. For example, the second element in the `labels` list corresponds to the second binary mask in the `masks` list and the second bounding box in the `bounding_boxes` list.
+- `labels` - a list of class labels (int) for each detected object
+- `probabilities` - a list of class probabilities (float range 0 - 1) for each detected object
+- `class_names` - a list of human readable class names (string) for each detected object
+- `masks` - a list of binary masks for each detected object
+    - Defined as a list of sensor_msgs/Image messages
+    - Each mask (Image) is a 2D array of 0s and 1s where 1s represent the instance of the object and 0s represent the background
+    - `Header` includes `frame_id` corresponding to the original image topic that the mask is associated with, the `height` and `width` of the mask, and the `encoding` of the image.
+- `bounding_boxes` - a list of bounding boxes for each detected object
+    - Defined as a custom message `yolov8_interfaces/msg/Yolov8BBox.msg`
+    - `top_left` - a custom message `yolov8_interfaces/msg/Point2D.msg` representing the top left corner of the bounding box as int `x` and `y` coordinates
+    - `rect_width` - the width of the bounding box as an int
+    - `rect_height` - the height of the bounding box as an int
+
 ## Installation
 ### Dependencies
 - Made for Ubuntu 22.04 (Untested on other Distributions)

@@ -3,6 +3,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "cv_bridge/cv_bridge.hpp"
+
 // Custom ROS2 message types where the names of the hpp files are snake_case
 #include "yolov8_interfaces/msg/point2_d.hpp"
 #include "yolov8_interfaces/msg/yolov8_detections.hpp"
@@ -66,25 +67,14 @@ class YoloV8Node : public rclcpp::Node
 
                 // Draw the bounding boxes on the image and store the binary masks
                 yoloV8_.drawObjectLabels(img, objects, detectedMasks);
-                // yoloV8_.drawObjectLabels(img, objects);
                 RCLCPP_INFO(this->get_logger(), "Detected %zu objects", objects.size());
                 RCLCPP_INFO(this->get_logger(), "Detected %zu masks", detectedMasks.size());
 
                 // Convert detected objects to ROS message
                 yolov8_interfaces::msg::Yolov8Detections detectionMsg;
-                
                 for (auto & object : objects) {
                     int label = object.label;
                     float prob = object.probability;
-
-                    // Bounding box
-                    // int rect_x = object.rect.x;
-                    // int rect_y = object.rect.y + 1;
-
-                    // Segmentation mask
-                    // int box_mask_rows = object.boxMask.rows;
-                    // int box_mask_cols = object.boxMask.cols;
-                    // int box_mask_data = object.boxMask.data;
 
                     // Place each binary mask into the ROS message
                     sensor_msgs::msg::Image binaryMaskMsg;
@@ -113,14 +103,16 @@ class YoloV8Node : public rclcpp::Node
                     // Create yolov8_obj bounding box message
                     yolov8_interfaces::msg::Yolov8BBox bBoxMsg;
                     yolov8_interfaces::msg::Point2D point2DMsg;
-                    bBoxMsg.label = label;
-                    bBoxMsg.probability = prob;
-                    bBoxMsg.top_left.x = point2DMsg.x;
-                    bBoxMsg.top_left.y = point2DMsg.y;
+                    point2DMsg.x = object.rect.x;
+                    point2DMsg.y = object.rect.y;
+                    bBoxMsg.top_left = point2DMsg;
                     bBoxMsg.rect_width = object.rect.width;
                     bBoxMsg.rect_height = object.rect.height;
 
-                    // Add segmentation masks and bouding boxes to yolov8detections message
+                    // Add segmentation masks, bounding boxes, and class info to yolov8detections message
+                    detectionMsg.labels.push_back(label);
+                    detectionMsg.probabilities.push_back(prob);
+                    detectionMsg.class_names.push_back(yoloV8_.getClassName(label));
                     detectionMsg.masks.push_back(binaryMaskMsg);
                     detectionMsg.bounding_boxes.push_back(bBoxMsg);
                 }
@@ -134,23 +126,11 @@ class YoloV8Node : public rclcpp::Node
                 cv_image->header.frame_id = image->header.frame_id;
                 // Turn cv_image into sensor_msgs::msg::Image
                 cv_image->toImageMsg(displayImageMsg);
-                // msg.segmented_image.header = image->header; // TODO fix header
-                // msg.segmented_image.header.stamp = rclcpp::Time(image->header.stamp.sec, image->header.stamp.nanosec);
-                // TODO: Do we need to set the Stamp as it 0 in the original vimba image?
                 displayImageMsg.header.stamp = rclcpp::Time(image->header.stamp.sec, image->header.stamp.nanosec);
 
                 // Publish the messages
                 detection_publisher_->publish(detectionMsg);
                 image_publisher_->publish(displayImageMsg);
-
-                // // Save the annotated image
-                // if (!objects.empty()) {
-                //     const auto outputName = "test_annotated.jpg";
-                //     if (!cv::imwrite(outputName, img)) {
-                //         RCLCPP_ERROR(this->get_logger(), "Failed to save annotated image");
-                //         return;
-                //     }
-                // }
                 
             } catch (cv::Exception& e) {
                 RCLCPP_ERROR(this->get_logger(), "cv exception: %s", e.what());
@@ -177,11 +157,11 @@ int main(int argc, char *argv[]) {
 
     // Create the YoloV8 engine
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Creating YoloV8 engine --- Could take a while if Engine file is not already built and cached.");
+    // TODO: See why this sometimes maxes out the memory and causes program to get SIGKILLed (exit code -6)
     YoloV8 yoloV8(onnxModelPath, config);
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "YoloV8 engine created and initialized.");
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<YoloV8Node>(yoloV8));
     rclcpp::shutdown();
-
     return 0;
 }

@@ -219,6 +219,7 @@ inline bool parseArguments(int argc, char* argv[], YoloV8Config& config, std::st
                 config.classNames = values;
             }
 
+            // TODO: Remove throwing away of --ros-args
             else if (flag == "ros-args") {
                 std::cout << "Throwing away --ros-args" << std::endl;
             }

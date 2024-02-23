@@ -66,6 +66,7 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
     std::cout << "Engine not found, generating. This could take a while..." << std::endl;
 
     // Create our engine builder.
+    // TODO: createInferBuilder fails when cuda runtime cannot determine number of GPUs from above
     auto builder = std::unique_ptr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(m_logger));
     if (!builder) {
         return false;
@@ -483,7 +484,20 @@ std::string Engine::serializeEngineOptions(const Options &options, const std::st
 
 void Engine::getDeviceNames(std::vector<std::string>& deviceNames) {
     int numGPUs;
+    // TODO: why is numGPUs 825112889 -> should only be 1?
+    // TODO: this is causing program to crash with exit code -9 as for loop is iterating below
     cudaGetDeviceCount(&numGPUs);
+    const int MAX_GPUS = 100000;
+
+    if (numGPUs < 1) {
+        throw std::runtime_error("Error, no CUDA-capable devices found!");
+    } else if (numGPUs > MAX_GPUS) {
+        std::cout << "Found " << numGPUs 
+            << " CUDA-capable devices due to error in cuda_runtime.h function \"cudaGetDeviceCount\". Defaulting to device index: "
+            << m_options.deviceIndex << " to avoid maxing out memory and to prevent SIGKILL from being called to kill program."
+            << std::endl;
+        numGPUs = m_options.deviceIndex + 1;
+    }
 
     for (int device=0; device<numGPUs; device++) {
         cudaDeviceProp prop;

@@ -27,6 +27,7 @@ YoloV8::YoloV8(const std::string& onnxModelPath, const YoloV8Config& config)
     }
 
     // Create our TensorRT inference engine
+    // TODO: See why making this engine sometimes maxes out the memory and causes program to get SIGKILLed (exit code -6)
     m_trtEngine = std::make_unique<Engine>(options);
 
     // Build the onnx model into a TensorRT engine file

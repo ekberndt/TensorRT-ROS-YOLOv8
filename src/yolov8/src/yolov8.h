@@ -67,6 +67,9 @@ public:
     // Draw the object bounding boxes and labels on the image and store a binary mask in the given
     // masks vector for each instance segmentation object.
     void drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, std::vector<cv::Mat> &masks, unsigned int scale = 2);
+
+    // Getter for CLASS_NAMES
+    std::string getClassName(int i) const { return CLASS_NAMES[i].c_str(); }
 private:
     // Preprocess the input
     std::vector<std::vector<cv::cuda::GpuMat>> preprocess(const cv::cuda::GpuMat& gpuImg);
