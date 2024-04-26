@@ -90,16 +90,6 @@ class YoloV8Node : public rclcpp::Node
                     // Turn cv_image into sensor_msgs::msg::Image
                     cv_image->toImageMsg(binaryMaskMsg);
 
-                    // Place the contours into the message
-                    // for (auto & points : object.contours) {
-                    //     yolov8_interfaces::msg::Point2D point2DMsg;
-                    //     // TODO: Check if this is the correct way to access the x and y values
-                    //     for 
-                    //     point2DMsg.x = point.x;
-                    //     point2DMsg.y = point.y;
-                    //     segMaskMsg.contours.push_back(point2DMsg);
-                    // }
-
                     // Create yolov8_obj bounding box message
                     yolov8_interfaces::msg::Yolov8BBox bBoxMsg;
                     yolov8_interfaces::msg::Point2D point2DMsg;
@@ -146,12 +136,12 @@ class YoloV8Node : public rclcpp::Node
 int main(int argc, char *argv[]) {
     YoloV8Config config;
     std::string onnxModelPath;
-    std::string inputImage;
 
     // Parse the command line arguments
     // TODO: Change this to use ROS parameters
-    if (!parseArguments(argc, argv, config, onnxModelPath, inputImage)) {
-        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Failed to parse command line arguments");
+    std::string parseArgsError = parseArguments(argc, argv, config, onnxModelPath);
+    if (!parseArgsError.empty()) {
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", parseArgsError.c_str());
         return -1;
     }
 

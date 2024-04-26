@@ -1,4 +1,7 @@
 # OpenCV Build Files
 .zip
 opencv-*
-opencv_*
+opencv_contrib-*
+
+# OpenCV persisted version file
+opencv_version.sh

@@ -5,11 +5,13 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Set the version of CUDA to use
+set(CUDA_VERSION, "11.8")
 # Use the correct version of CUDA
-set(CUDA_TOOLKIT_ROOT_DIR "/usr/local/cuda-11.8")
+set(CUDA_TOOLKIT_ROOT_DIR "/usr/local/cuda-${CUDA_VERSION}")
 
 # Set CMAKE_CUDA_COMPILER to the correct version of nvcc
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda-11.8/bin/nvcc")
+set(CMAKE_CUDA_COMPILER "/usr/local/cuda-${CUDA_VERSION}/bin/nvcc")
 
 # Find dependencies
 find_package(ament_cmake_auto REQUIRED)
@@ -56,6 +58,7 @@ add_executable(ros_segmentation src/ros_segmentation.cpp)
 ament_target_dependencies(ros_segmentation rclcpp sensor_msgs cv_bridge yolov8_interfaces)
 target_link_libraries(ros_segmentation YoloV8_TRT)
 
+#
 install(TARGETS
   ros_segmentation
   DESTINATION lib/${PROJECT_NAME}
@@ -76,11 +79,13 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install the launch files and config files
+# Places the launch, config, and models folders in the install/yolov8/share/yolov8 directory so they can be found by the launch file
 install(DIRECTORY
   launch
   config
+  models
   DESTINATION share/${PROJECT_NAME}/
+  PATTERN ".gitignore" EXCLUDE # Exclude .gitignore files from being installed
 )
 
 # Allows other packages to find and link to the YoloV8_TRT and tensorrt_cpp_api libraries

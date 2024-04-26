@@ -23,8 +23,7 @@ This topic publishes a custom `yolov8_interfaces/msg/Detection` message which co
     - `rect_width` - the width of the bounding box as an int
     - `rect_height` - the height of the bounding box as an int
 
-## Installation
-### Dependencies
+## Installation / Dependencies
 - Made for Ubuntu 22.04 (Untested on other Distributions)
 - Install ROS2 Iron
     - Since ROS2 Iron natively supports Ubuntu 22.04 you can install is as a Debian package as described [here](https://docs.ros.org/en/iron/Installation/Ubuntu-Install-Debians.html).
@@ -32,36 +31,46 @@ This topic publishes a custom `yolov8_interfaces/msg/Detection` message which co
 - Install TensorRT 8.6 GA
     - Download TensorRT 8.6 GA from [here](https://developer.nvidia.com/nvidia-tensorrt-8x-download) and install the **full runtime** by following the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html#installing-debian).
     - Note you should have already installed CUDA 11.8 toolkit and cuDNN in the conda environment, so you do not have to reinstall them.
+- Build OpenCV 4.8.0 with CUDA support using the following
+    - In the root directory of this package, run:
+    ```Bash
+    ./scripts/build_opencv.sh
+    ```
+    - This script will build OpenCV 4.8.0 with CUDA support and install it in the `libs/tensorrt-cpp-api/scripts/` directory, which will take a while to build.
+    - _Note_: This script will install a custom build of **OpenCV system-wide**, overwriting any existing OpenCV installation. This may break other projects that rely on a different version of OpenCV as across OpenCV versions functions are deprecated, removed, or changed. If this is a concern, you can uninstall this custom build of OpenCV with the following command but this package will no longer work until you reinstall the custom build of OpenCV.
+    ```Bash
+    ./scripts/uninstall_opencv.sh
+    ```
 
 ## Building and Running TensorRT Node
 First you must create a ROS2 workspace.
-```
+```Bash
 mkdir -p ros_workspace/src
 ```
 Then move the `yolov8` package (directory) and `yolov8_interfaces` package from the `src` directory of this project into the `src` directory of the ROS2 workspace you just created.
 
 Then in the root directory of this `ros_workspace`, run the following commands to build the ROS2 package and source the setup file.
-```
+```Bash
 # Builds the package with debug symbols so you can debug C++ code with GDB
 make build-debug PACKAGES="yolov8 yolov8_interfaces" 
 source install/setup.bash
 ```
 You can also build normally with colcon and source the setup file.
-```
+```Bash
 colcon build
 source install/setup.bash
 ```
-Then you can run the ROS2 node using the following command where `model.onnx` is the path to the ONNX model you want to use and `image.jpg` is a placeholder image that does nothing - TODO: remove this 
-```
-ros2 run yolov8 ros_segmentation --model model.onnx --input image.jpg
+Then you can run the ROS2 node using the following command where `model.onnx` is the path to the ONNX model you want to use.
+```Bash
+ros2 run yolov8 ros_segmentation --model model.onnx
 ```
 You can also run the ROS2 node using a launch file where the `arguments` should be modified to the path of the ONNX model you want to use.
-```
+```Bash
 ros2 launch yolov8 yolov8.launch.py
 ```
 _Note_: The first time you run the ROS node, it will take a while for TensorRT to build the engine model for your specific GPU. Subsequent runs will be able to load the serialized engine model and will be much faster.
  
-# Errors
+## Errors
 - If you get exit code `-9` while building / loading the TensorRT Engine you likely ran out of memory and may need to close other applications or use a different GPU / more memory.
 - If you get an error about no rclpy module check to make sure you are **not** using a conda environment as it may cause issues with the ROS2 environment.
 
