@@ -28,9 +28,29 @@ This topic publishes a custom `yolov8_interfaces/msg/Detection` message which co
 - Install ROS2 Iron
     - Since ROS2 Iron natively supports Ubuntu 22.04 you can install is as a Debian package as described [here](https://docs.ros.org/en/iron/Installation/Ubuntu-Install-Debians.html).
 - Make sure you are **not** using a conda environment as it may cause issues with the ROS2 environment.
+- Install CUDA 11.8 Toolkit via the runfile (local) [here](https://developer.nvidia.com/cuda-11-8-0-download-archive?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=runfile_local) NOT the deb version.
+    - _WARNING_: After installing the CUDA toolkit make sure you can run `nvidia-smi` in the CLI and that it doesn't error out. _If it errors out_, this may be because you installed the deb version of CUDA 11.8 rather than the runfile version or you forgot the `--toolkit` flag. This means you installed newer CUDA low level drivers in place of the original CUDA low level drivers and may black screen your computer if your computer is restarted. Open up the `Additional Drivers` tab in the `Software & Updates` application in Ubuntu and install the NVIDIA driver metapackage with the `(propreitary, tested)` tags (or whatever driver version your GPU needs).
+- Download cuDNN 8.2.4 from [here](https://developer.nvidia.com/cudnn) and install it by following the instructions [here](https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html).
 - Install TensorRT 8.6 GA
-    - Download TensorRT 8.6 GA from [here](https://developer.nvidia.com/nvidia-tensorrt-8x-download) and install the **full runtime** by following the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html#installing-debian).
-    - Note you should have already installed CUDA 11.8 toolkit and cuDNN in the conda environment, so you do not have to reinstall them.
+    - Download TensorRT 8.6 GA **TAR Package** (not the deb package) from [here](https://developer.nvidia.com/nvidia-tensorrt-8x-download), place / unpack the tar inside the `~/libs/` folder, and install the **full runtime** by following the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html#installing-tar).
+    - _Note_: We use the TAR package because it allows us to install multiple versions of TensorRT on the same machine (and the CMAKE file in this package assumes the TAR package is used). The deb package does not allow this.
+<!-- - Add the CUDA and TensorRT paths to the end of your `~/.bashrc` file by running the following commands:
+    ```Bash
+    echo '# CUDA TOOLKIT' >> ~/.bashrc
+    echo 'export PATH=/usr/local/cuda-11.8/bin:$PATH' >> ~/.bashrc
+    echo 'export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+    echo 'export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-11.8' >> ~/.bashrc
+    echo '' >> ~/.bashrc
+    echo '# TensorRT' >> ~/.bashrc
+    echo 'export LD_LIBRARY_PATH=~/libs/TensorRT-8.6.1.6/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
+    echo '' >> ~/.bashrc
+    source ~/.bashrc
+    ``` -->
+- Add the TensorRT path to the `LD_LIBRARY_PATH` environment variable in your `~/.bashrc` file so that the TensorRT shared libraries can be found by the ROS2 node.
+    ```Bash
+    echo '# TensorRT' >> ~/.bashrc
+    echo 'export LD_LIBRARY_PATH=~/libs/TensorRT-8.6.1.6/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
+    ```
 - Build OpenCV 4.8.0 with CUDA support using the following
     - In the root directory of this package, run:
     ```Bash
@@ -73,6 +93,7 @@ _Note_: The first time you run the ROS node, it will take a while for TensorRT t
 ## Errors
 - If you get exit code `-9` while building / loading the TensorRT Engine you likely ran out of memory and may need to close other applications or use a different GPU / more memory.
 - If you get an error about no rclpy module check to make sure you are **not** using a conda environment as it may cause issues with the ROS2 environment.
+- If you get an error when you launch / run the ros node saying `libnvinfer.so.8: cannot open shared object file: No such file or directory`, make sure you added the TensorRT path to the `LD_LIBRARY_PATH` environment variable in your `~/.bashrc` file and sourced it as mentioned in [Installation / Dependencies](#installation--dependencies).
 
 ## Sources
 This project uses code and directions from [YOLOv8-TensorRT-CPP](https://github.com/cyrusbehr/YOLOv8-TensorRT-CPP) licensed under the MIT license.

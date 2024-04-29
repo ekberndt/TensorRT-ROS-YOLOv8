@@ -12,3 +12,6 @@ cd ${OPENCV_BUILD_DIR}
 
 # Uninstall OpenCV with CUDA in OPENCV_BUILD_DIR (in the case you are causing conflicts with another version of OpenCV)
 sudo make uninstall
+
+# Update ldconfig
+sudo ldconfig -v

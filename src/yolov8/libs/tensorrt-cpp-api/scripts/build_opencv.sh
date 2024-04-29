@@ -55,6 +55,9 @@ export "OPENCV_VERSION=${OPENCV_VERSION}"\
 # Installs system wide using 8 cores
 sudo make -j 8 install
 
+# Add the OpenCV library to the ldconfig cache
+sudo ldconfig -v
+
 # To undo the install (in the case you are causing conflicts with another version of OpenCV), run
 # $ sudo make uninstall
 # in the build folder (where you ran the make install command)

@@ -5,12 +5,12 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Set CUDA early so OpenCV can find it
 # Set the version of CUDA to use
-set(CUDA_VERSION, "11.8")
-# Use the correct version of CUDA
+set(CUDA_VERSION "11.8")
+# # Use the correct version of CUDA
 set(CUDA_TOOLKIT_ROOT_DIR "/usr/local/cuda-${CUDA_VERSION}")
-
-# Set CMAKE_CUDA_COMPILER to the correct version of nvcc
+# # Set CMAKE_CUDA_COMPILER to the correct version of nvcc
 set(CMAKE_CUDA_COMPILER "/usr/local/cuda-${CUDA_VERSION}/bin/nvcc")
 
 # Find dependencies
@@ -69,7 +69,7 @@ install(
   DESTINATION include/${PROJECT_NAME}
 )
 
-# Moves YoloV8_TRT library to the install folder rather than the build folder
+# Moves YoloV8_TRT library to the install folder
 install(TARGETS
   YoloV8_TRT
   tensorrt_cpp_api

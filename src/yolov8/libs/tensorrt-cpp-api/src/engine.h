@@ -6,7 +6,11 @@
 #include <opencv2/core/cuda.hpp>
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/cudaarithm.hpp>
+// Suppress warnings from TensorRT headers
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include "NvInfer.h"
+#pragma GCC diagnostic pop
 
 // Utility methods
 namespace Util {
