@@ -11,8 +11,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Ofast -DNDEBUG -Wno-deprecated-de
 # For finding FindTensorRT.cmake
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
+# ----------- Set TENSORT_DIR for TENSRORT TAR INSTALL HERE ----------
 # Specify the path to TensorRT root dir for FindTensorRT.cmake to find the libraries
 set(TensorRT_DIR $ENV{HOME}/libs/TensorRT-8.6.1.6/)
+# set(TensorRT_DIR /usr/src/tensorrt/)
+# ----------- Set TENSORT_DIR for TENSRORT TAR INSTALL HERE ----------
 
 # Check if the path to TensorRT root dir exists
 if (NOT EXISTS ${TensorRT_DIR})
@@ -50,16 +53,18 @@ endif()
 
 message(STATUS "CUDA Version in tensorrt-cpp-api: ${CUDA_VERSION}")
 
-# Set the path to the OpenCV build
-set(OpenCV_DIR /opencv-4.8.0/build)
-
 find_package(OpenCV 4.8.0 REQUIRED)
 if (NOT OpenCV_FOUND)
     message(FATAL_ERROR "OpenCV not found. Please make sure OpenCV is installed.")
     return()
 endif()
 
+message(INFO "${LD_LIBRARY_PATH}")
 message(STATUS "OpenCV Version: ${OpenCV_VERSION}")
+# message(STATUS "OpenCV Directory: ${OpenCV_DIR}")
+message(STATUS "OpenCV Include: ${OpenCV_INCLUDE_DIRS}")
+message(STATUS "OpenCV Libraries: ${OpenCV_LIBS}")
+message(STATUS "OpenCV Lib Dir: ${OpenCV_LIB_DIR}")
 
 # Link OpenCV directories to ensure CUDA libraries are found
 include_directories(${OpenCV_INCLUDE_DIRS})

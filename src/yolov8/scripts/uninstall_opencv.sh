@@ -1,9 +1,9 @@
+# Description: This script unistalls OpenCV with CUDA support system wide.
+$OPENCV_VERSION="4.8.0"
+
 # Enter the directory where this script is located
 CURR_SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd ${CURR_SCRIPT_DIR}
-
-# Run the persisted opencv_version script to get the version of OpenCV that was last built by the script as an environment variable:
-source opencv_version.sh
 
 # Enter OPENCV_BUILD_DIR
 echo "Uninstalling OPENCV_VERSION=$OPENCV_VERSION"

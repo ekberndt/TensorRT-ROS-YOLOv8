@@ -64,11 +64,6 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(
-  DIRECTORY include/
-  DESTINATION include/${PROJECT_NAME}
-)
-
 # Moves YoloV8_TRT library to the install folder
 install(TARGETS
   YoloV8_TRT
