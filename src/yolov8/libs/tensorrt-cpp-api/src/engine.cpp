@@ -486,18 +486,14 @@ std::string Engine::serializeEngineOptions(const Options &options, const std::st
 void Engine::getDeviceNames(std::vector<std::string>& deviceNames) {
     int numGPUs;
     // TODO: why is numGPUs 825112889 -> should only be 1?
-    // TODO: this is causing program to crash with exit code -9 as for loop is iterating below
-    cudaGetDeviceCount(&numGPUs);
-    const int MAX_GPUS = 100000;
+    // TODO: this is causing program to crash with exit code -9 as the large for loop iterates below
+    // cudaGetDeviceCount(&numGPUs);
+    cudaError_t ret = cudaGetDeviceCount(&numGPUs);
 
-    if (numGPUs < 1) {
-        throw std::runtime_error("Error, no CUDA-capable devices found!");
-    } else if (numGPUs > MAX_GPUS) {
-        std::cout << "Found " << numGPUs 
-            << " CUDA-capable devices due to error in cuda_runtime.h function \"cudaGetDeviceCount\". Defaulting to device index: "
-            << m_options.deviceIndex << " to avoid maxing out memory and to prevent SIGKILL from being called to kill program."
-            << std::endl;
-        numGPUs = m_options.deviceIndex + 1;
+    if (ret != 0) {
+        // Throw the cuda error message
+        throw std::runtime_error("Error, cuda_runtime_api.h could not determine number of CUDA-capable devices. "
+                                    "Restart your computer. Error thrown by cuda_runtime_api.h: " + std::string(cudaGetErrorString(ret)));
     }
 
     for (int device=0; device<numGPUs; device++) {
