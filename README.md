@@ -8,26 +8,43 @@ This packages assumes you have already fine-tuned a YOLOv8 model and have the ON
 
 ## ROS2 Messages
 
-### yolov8/Image
+### yolov8/camera_name/Image
+
+> Note: This topic will only be published if the `visualizeMasks` parameter is set to `true`.
 
 This topic is a `sensor_msgs/Image` image and is used to visualize the output of the instance segmentation and bounding boxes in RViz2.
 
-### yolov8/detections
+- The `Header` (with time `stamp` and `frame_id`), `height`, `width`, `is_bigendian`, and `step` are taken from the original image topic that the mask is associated with and the `encoding` of the image which is always `bgr8`.
+
+### yolov8/camera_name/detections
 
 This topic publishes a custom `yolov8_interfaces/msg/Detection` message which contains the class label, class probability, class name, segmentation mask, and bounding box for each detected object. Everything in this message is in the same order as the detected objects in the image. For example, the second element in the `labels` list corresponds to the second binary mask in the `masks` list and the second bounding box in the `bounding_boxes` list.
 
+- `index` - an int representing the index of the detected object (1 indexed since 0 is reserved for the background)
 - `labels` - a list of class labels (int) for each detected object
 - `probabilities` - a list of class probabilities (float range 0 - 1) for each detected object
 - `class_names` - a list of human readable class names (string) for each detected object
-- `masks` - a list of binary masks for each detected object
-  - Defined as a list of sensor_msgs/Image messages
-  - Each mask (Image) is a 2D array of 0s and 1s where 1s represent the instance of the object and 0s represent the background
-  - `Header` includes `frame_id` corresponding to the original image topic that the mask is associated with, the `height` and `width` of the mask, and the `encoding` of the image.
+- `seg_mask_one_channel` - a single channel segmentation mask for all detected segmentation masks combined into one image and in one color channel
+  - Each mask (Image) is a 2D array where 0 represents the background and all other values represent the `index` of the detected object.
+  - Published as a `sensor_msgs/Image` image
+  - The `Header` (with time `stamp` and `frame_id`), `height`, `width`, `is_bigendian`, and `step` are taken from the original image topic that the mask is associated with and the `encoding` of the image which is always `mono8`.
+  - This topic is useful for tasks like LiDAR point cloud segmentation where you want to segment the point cloud based on the projected detections from image space onto the point cloud.
+  - `data` is the image itself
 - `bounding_boxes` - a list of bounding boxes for each detected object
   - Defined as a custom message `yolov8_interfaces/msg/Yolov8BBox.msg`
   - `top_left` - a custom message `yolov8_interfaces/msg/Point2D.msg` representing the top left corner of the bounding box as int `x` and `y` coordinates
   - `rect_width` - the width of the bounding box as an int
   - `rect_height` - the height of the bounding box as an int
+
+### yolov8/camera_name/seg_mask_one_channel
+
+> Note: This topic will only be published if the `enableOneChannelMask` and `visualizeOneChannelMask` parameters are both set to `true`.
+
+This topic is a `sensor_msgs/Image` image and is used to visualize the output oneChannelMask (all the segmentation masks combined into one image and in one color) in RViz2 / Foxglove Studio.
+
+- The `Header` (with time `stamp` and `frame_id`), `height`, `width`, `is_bigendian`, and `step` are taken from the original image topic that the mask is associated with. The published image `encoding` is actually an `rgb8` converted from the original `mono8` `yolov8/camera_name/detections/seg_mask_one_channel` topic.
+- The `rgb8` image is normalized using cv::NORMALIZE_MINMAX so the minimum value of the displayed image is 0 and the maximum value of the displayed image is 255 even if the original image only has 0 and 1 values. This means the labels will change colors drastically if the number of detected objects changes. This is done so the image can be visualized in RViz2 / Foxglove Studio.
+- `data` is the image itself
 
 ## Installation / Dependencies
 
@@ -38,33 +55,20 @@ This topic publishes a custom `yolov8_interfaces/msg/Detection` message which co
 - Install CUDA 11.8 Toolkit via the runfile (local) [here](https://developer.nvidia.com/cuda-11-8-0-download-archive?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=runfile_local) NOT the deb version.
   - _WARNING_: After installing the CUDA toolkit make sure you can run `nvidia-smi` in the CLI and that it doesn't error out. _If it errors out_, this may be because you installed the deb version of CUDA 11.8 rather than the runfile version or you forgot the `--toolkit` flag. This means you installed newer CUDA low level drivers in place of the original CUDA low level drivers and may black screen your computer if your computer is restarted. Open up the `Additional Drivers` tab in the `Software & Updates` application in Ubuntu and install the NVIDIA driver metapackage with the `(proprietary, tested)` tags (or whatever driver version your GPU needs).
 - Download cuDNN 8.2.4 from [here](https://developer.nvidia.com/cudnn) and install it by following the instructions [here](https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html).
-- Install TensorRT 8.6 GA
-  - Download TensorRT 8.6 GA **TAR Package** (not the deb package) from [here](https://developer.nvidia.com/nvidia-tensorrt-8x-download), place / unpack the tar inside the `~/libs/` folder, and install the **full runtime** by following the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html#installing-tar).
-  - _Note_: We use the TAR package because it allows us to install multiple versions of TensorRT on the same machine (and the CMAKE file in this package assumes the TAR package is used). The deb package does not allow this.
-<!-- - Add the CUDA and TensorRT paths to the end of your `~/.bashrc` file by running the following commands:
-    ```Bash
-    echo '# CUDA TOOLKIT' >> ~/.bashrc
-    echo 'export PATH=/usr/local/cuda-11.8/bin:$PATH' >> ~/.bashrc
-    echo 'export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
-    echo 'export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-11.8' >> ~/.bashrc
-    echo '' >> ~/.bashrc
-    echo '# TensorRT' >> ~/.bashrc
-    echo 'export LD_LIBRARY_PATH=~/libs/TensorRT-8.6.1.6/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
-    echo '' >> ~/.bashrc
-    source ~/.bashrc
-    ``` -->
-- Add the TensorRT path to the `LD_LIBRARY_PATH` environment variable in your `~/.bashrc` file so that the TensorRT shared libraries can be found by the ROS2 node.
-
-    ```Bash
-    echo '# TensorRT' >> ~/.bashrc
-    echo 'export LD_LIBRARY_PATH=~/libs/TensorRT-8.6.1.6/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
-    ```
+- Install TensorRT. Note you can install TensorRT as a DEB or TAR pkg. The DEB package is easier to install but only allows one minor version of TensorRT to be installed at a time. The TAR package is more difficult to install but allows multiple versions of TensorRT to be installed at the same time. **You only have to install either the DEB or TAR package, not both.**
+- Install TensorRT 10 GA (DEB Package)
+  - Download TensorRT 10 **DEB Package** from [here](https://developer.nvidia.com/tensorrt/download/10x) by following [these instructions](https://docs.nvidia.com/deeplearning/tensorrt/archives/tensorrt-1010/install-guide/index.html#downloading). Install the **full C++ and Python runtimes**.
+  - The DEB package is always installed in `/usr/src/tensorrt` and the shared libraries are in `/usr/lib/x86_64-linux-gnu/`. The CMAKE file in this package assumes the DEB package is used so you don't have to make any changes to the CMAKE files.
+- Install TensorRT 8.6 GA (TAR Package)
+  - Download TensorRT 8.6 GA **TAR Package** from [here](https://developer.nvidia.com/nvidia-tensorrt-8x-download), place / unpack the tar inside the `~/libs/` folder, and install the **full runtime** by following the instructions [here](https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html#installing-tar).
+  - Since we installed the TAR package in a custom location (~/libs/TensorRT-xxx) we need to update `src/yolov8/libs/tensorrt-cpp-api/CMakeLists.txt` to point to the correct location of the TensorRT shared libraries. Change the `set(TENSORRT_DIR "/usr/src/tensorrt")` line to `set(TensorRT_DIR $ENV{HOME}/libs/TensorRT-8.6.1.6/)` in the `CMakeLists.txt` file.
 
 - Build OpenCV 4.8.0 with CUDA support using the following
+  - In `scripts/install_opencv.sh` change the `CUDA_ARCH_BIN` variable to the correct CUDA architecture of your GPU. You can find the correct CUDA compute architecture for your GPU [here](https://developer.nvidia.com/cuda-gpus) by clicking the dropdowns.
   - In the root directory of this package, run:
 
     ```Bash
-    ./scripts/build_opencv.sh
+    ./scripts/install_opencv.sh
     ```
 
   - This script will build OpenCV 4.8.0 with CUDA support and install it in the `libs/tensorrt-cpp-api/scripts/` directory, which will take a while to build.
@@ -118,6 +122,7 @@ _Note_: The first time you run the ROS node, it will take a while for TensorRT t
 - If you get exit code `-9` while building / loading the TensorRT Engine you likely ran out of memory and may need to close other applications or use a different GPU / more memory.
 - If you get an error about no rclpy module check to make sure you are **not** using a conda environment as it may cause issues with the ROS2 environment.
 - If you get an error when you launch / run the ros node saying `libnvinfer.so.8: cannot open shared object file: No such file or directory`, make sure you added the TensorRT path to the `LD_LIBRARY_PATH` environment variable in your `~/.bashrc` file and sourced it as mentioned in [Installation / Dependencies](#installation--dependencies).
+- "Error, cuda_runtime_api.h could not determine number of CUDA-capable devices. Restart your computer. Error thrown by cuda_runtime_api.h: unknown error": This error seems to happen after the computer has been on for a long time and the GPU has been used a lot. Restarting the computer seems to fix this issue.
 
 ## Sources
 
