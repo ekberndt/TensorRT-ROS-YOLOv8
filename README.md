@@ -117,6 +117,19 @@ ros2 launch yolov8 yolov8.launch.py
 
 _Note_: The first time you run the ROS node, it will take a while for TensorRT to build the engine model for your specific GPU. Subsequent runs will be able to load the serialized engine model and will be much faster.
 
+## Tmuxp
+
+You can also use the `tmuxp` package to quickly run the ROS2 node in a tmux session. First install `tmuxp` with the following command.
+
+```Bash
+sudo apt install tmuxp
+```
+
+There are two tmuxp configurations in the `tmuxp` directory.
+
+- `rviz2_yolov8.yaml` - This configuration will run a configured RViz2, the ROS2 node, a `rosbag play` command, and a terminal to echo the topics.
+- `foxglove_yolov8.yaml` - This configuration will run Foxglove Studio, the ROS2 node, a `rosbag play` command, and a terminal to echo the topics.
+
 ## Errors
 
 - If you get exit code `-9` while building / loading the TensorRT Engine you likely ran out of memory and may need to close other applications or use a different GPU / more memory.
