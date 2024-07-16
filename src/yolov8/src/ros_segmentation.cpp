@@ -21,21 +21,23 @@ class YoloV8Node : public rclcpp::Node
             subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
             "/vimba_front_right_center/image", 10, std::bind(&YoloV8Node::camera_callback, this, _1));
 
-            // rclcpp::Publisher::yolov8_interfaces::msg::YOLOv8Seg>::SharedPtr("/yolov8/dectections", 10);
+            // rclcpp::Publisher::yolov8_interfaces::msg::YOLOv8Seg>::SharedPtr("/yolov8/detections", 10);
             // rclcpp::Publisher::<sensor_msgs::msg::Image>::SharedPtr("/yolov8/Image", 10);
 
             // Do these need to be shared pointers?
-            detection_publisher_ = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>("/yolov8/detections", 10);
-            image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/yolov8/Image", 10);
+            detection_publisher_ = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>("/yolov8/vimba_front_right_center/detections", 10);
+            image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/yolov8/vimba_front_right_center/Image", 10);
+            oneChannelMask_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/yolov8/vimba_front_right_center/seg_mask_one_channel", 10);
         }
 
     private:
         void camera_callback(const sensor_msgs::msg::Image::ConstSharedPtr & image) const
         {
+            // Convert ROS image to OpenCV image
             cv_bridge::CvImagePtr cv_ptr;
             try
             {
-                cv_ptr = cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::RGB8); // Convert to RGB format
+                cv_ptr = cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::RGB8);
                 // RCLCPP_INFO(this->get_logger(), "Image | Encoding: %s | Height: %d | Width %d | Step %ld", cv_ptr->encoding.c_str(),
                 //     cv_ptr->image.rows, cv_ptr->image.cols, static_cast<long int>(cv_ptr->image.step));
             }
@@ -62,33 +64,82 @@ class YoloV8Node : public rclcpp::Node
                 // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
                 // RCLCPP_INFO(this->get_logger(), "Mask Shape: %s", objects[0].boxMask.size());
 
-                // Create vector to store binary masks for each segmentation object
-                std::vector<cv::Mat> detectedMasks;
+                // ROS message to publish the detections
+                yolov8_interfaces::msg::Yolov8Detections detectionMsg;
+                detectionMsg.header = image->header;
 
-                // Draw the bounding boxes on the image and store the binary masks
-                yoloV8_.drawObjectLabels(img, objects, detectedMasks);
+                // TODO: Make these flags ROS parameters
+                bool visualizeMasks = true;
+                bool enableOneChannelMask = true;
+                bool visualizeOneChannelMask = true;
+                
+                if (enableOneChannelMask) {
+                    cv::Mat oneChannelMask;
+                    yoloV8_.getOneChannelSegmentationMask(img, objects, oneChannelMask);
+                    // Use ROS cv_bridge to convert cv::Mat to sensor_msgs::msg::Image and take header from original camera image
+                    cv_bridge::CvImage cvBridgeOneChannelMask = cv_bridge::CvImage();
+                    cvBridgeOneChannelMask.image = oneChannelMask;
+                    detectionMsg.seg_mask_one_channel = *cvBridgeOneChannelMask.toImageMsg();
+                    detectionMsg.seg_mask_one_channel.header = image->header;
+                    detectionMsg.seg_mask_one_channel.encoding = "mono8";
+
+                    // Publish the one channel mask with RGB color for visualization only
+                    if (visualizeOneChannelMask) {
+                        // Draw the one channel mask on the image
+                        // Convert the one channel mask to 8-bit
+                        cv::Mat oneChannelMask8U;
+                        oneChannelMask.convertTo(oneChannelMask8U, CV_8U);
+
+                        // Convert the one channel mask to 3-channel RGB
+                        cv::Mat oneChannelMaskRGB8;
+                        cv::cvtColor(oneChannelMask8U, oneChannelMaskRGB8, cv::COLOR_GRAY2RGB);
+
+                        // Normalize the one channel mask to 0-255 so it can be displayed as an RGB image
+                        cv::normalize(oneChannelMaskRGB8, oneChannelMaskRGB8, 0, 255, cv::NORM_MINMAX);
+
+                        // Publish the 3-channel RGB mask as a ROS message
+                        cv_bridge::CvImage cvBridgeOneChannelMaskRGB8 = cv_bridge::CvImage();
+                        cvBridgeOneChannelMaskRGB8.image = oneChannelMaskRGB8;
+                        cvBridgeOneChannelMaskRGB8.header = image->header;
+                        cvBridgeOneChannelMaskRGB8.encoding = "rgb8";
+                        oneChannelMask_publisher_->publish(*cvBridgeOneChannelMaskRGB8.toImageMsg());
+                    }
+                }
+
+                // Draw the segmentation masks and bounding boxes on the image
+                // to visualize the detections
+                if (visualizeMasks) {
+                    // yoloV8_.drawObjectLabels(img, objects, detectedMasks);
+                    yoloV8_.drawObjectLabels(img, objects);
+                }
+
                 RCLCPP_INFO(this->get_logger(), "Detected %zu objects", objects.size());
-                RCLCPP_INFO(this->get_logger(), "Detected %zu masks", detectedMasks.size());
+                // RCLCPP_INFO(this->get_logger(), "Detected %zu masks", detectedMasks.size());
+                
+                // TODO: Check if this is correct
+                // detectionMsg.header.frame_id = image->header.frame_id; // TODO: Check if this is correct
+                // detectionMsg.header.stamp = rclcpp::Time(image->header.stamp.sec, image->header.stamp.nanosec); // TODO: Check if this is correct
 
                 // Convert detected objects to ROS message
-                yolov8_interfaces::msg::Yolov8Detections detectionMsg;
+                // Start at index 1 because index 0 is the background class
+                int index = 1;
                 for (auto & object : objects) {
                     int label = object.label;
                     float prob = object.probability;
 
-                    // Place each binary mask into the ROS message
-                    sensor_msgs::msg::Image binaryMaskMsg;
-                    cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>();
-                    if (!detectedMasks.empty()) {
-                        cv_image->image = detectedMasks.back();
-                        detectedMasks.pop_back();
-                    } else {
-                        RCLCPP_ERROR(this->get_logger(), "detectedMasks vector is empty");
-                    }
-                    cv_image->encoding = "bgr8";
-                    cv_image->header.frame_id = image->header.frame_id;
+                    // // Place each binary mask into the ROS message
+                    // sensor_msgs::msg::Image binaryMaskMsg;
+                    // cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>();
+                    // if (!detectedMasks.empty()) {
+                    //     cv_image->image = detectedMasks.back();
+                    //     detectedMasks.pop_back();
+                    // } else {
+                    //     RCLCPP_ERROR(this->get_logger(), "detectedMasks vector is empty");
+                    // }
+                    // cv_image->encoding = "bgr8"; // TODO: Change this to "mono8"?
+                    // cv_image->header.frame_id = image->header.frame_id;
                     // Turn cv_image into sensor_msgs::msg::Image
-                    cv_image->toImageMsg(binaryMaskMsg);
+                    // cv_image->toImageMsg(binaryMaskMsg);
 
                     // Create yolov8_obj bounding box message
                     yolov8_interfaces::msg::Yolov8BBox bBoxMsg;
@@ -100,11 +151,14 @@ class YoloV8Node : public rclcpp::Node
                     bBoxMsg.rect_height = object.rect.height;
 
                     // Add segmentation masks, bounding boxes, and class info to yolov8detections message
+                    detectionMsg.indexes.push_back(index);
                     detectionMsg.labels.push_back(label);
                     detectionMsg.probabilities.push_back(prob);
                     detectionMsg.class_names.push_back(yoloV8_.getClassName(label));
-                    detectionMsg.masks.push_back(binaryMaskMsg);
+                    // detectionMsg.masks.push_back(binaryMaskMsg);
                     detectionMsg.bounding_boxes.push_back(bBoxMsg);
+
+                    index++;
                 }
 
                 // Publish segmented image as ROS message
@@ -130,6 +184,7 @@ class YoloV8Node : public rclcpp::Node
         rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
         rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr detection_publisher_;
         rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr oneChannelMask_publisher_;
         YoloV8& yoloV8_;
         };
 

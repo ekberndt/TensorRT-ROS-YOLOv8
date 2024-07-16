@@ -446,7 +446,6 @@ std::vector<Object> YoloV8::postprocessDetect(std::vector<float> &featureVector)
     return objects;
 }
 
-
 /**
  * @brief Draws object labels on the given image.
  * 
@@ -543,6 +542,30 @@ void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects
 }
 
 /**
+ * @brief Place all the segmentation masks into a one channel image.
+ * 
+ * This function takes a vector of detected masks and places them into a single channel image.
+ * 
+ * @param objects A vector of detected instance segmentation objects.
+ * @param image The image the sizing of the segMaskOneChannel will be based on.
+ * @param segMaskOneChannel The output image containing all the masks in a single channel.
+ */
+void YoloV8::getOneChannelSegmentationMask(cv::Mat& image, const std::vector<Object>& objects, cv::Mat& segMaskOneChannel)
+{
+    int height = image.rows;
+    int width = image.cols;
+    segMaskOneChannel = cv::Mat::zeros(height, width, CV_8UC1);
+    if (!objects.empty() && !objects[0].boxMask.empty()) {
+        int i = 1;
+        for (const auto& object: objects) {
+            // Draw each segmentation mask on the oneChannelMask
+            segMaskOneChannel(object.rect).setTo(i, object.boxMask);
+            i++;
+        }
+    }
+}
+
+/**
  * @brief Function overload to draw object labels on the given image.
  * 
  * This function takes an input image, a vector of detected objects, and a vector to store masks
@@ -554,7 +577,7 @@ void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects
  * @param masks A vector of binary masks representing each detected instance segmentation object.
  * @param scale The scale factor to adjust the size of the thickness of the bounding box lines and font size of text.
  */
-void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, std::vector<cv::Mat> &masks, unsigned int scale) {
+void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, std::vector<cv::Mat>& masks, unsigned int scale) {
     // If segmentation information is present, start with that
     if (!objects.empty() && !objects[0].boxMask.empty()) {
         cv::Mat mask = image.clone();

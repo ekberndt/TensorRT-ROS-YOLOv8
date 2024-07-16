@@ -3,7 +3,7 @@
 #include <fstream>
 
 // Utility method for checking if a file exists on disk
-inline bool doesFileExist (const std::string& name) {
+inline bool doesFileExist(const std::string& name) {
     std::ifstream f(name.c_str());
     return f.good();
 }
@@ -60,6 +60,9 @@ public:
     // Detect the objects in the image
     std::vector<Object> detectObjects(const cv::Mat& inputImageBGR);
     std::vector<Object> detectObjects(const cv::cuda::GpuMat& inputImageBGR);
+
+    // Create a one channel segmentation mask for all segmentation objects
+    void getOneChannelSegmentationMask(cv::Mat& image, const std::vector<Object>& objects, cv::Mat& segMaskOneChannel);
 
     // Draw the object bounding boxes and labels on the image
     void drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, unsigned int scale = 2);
