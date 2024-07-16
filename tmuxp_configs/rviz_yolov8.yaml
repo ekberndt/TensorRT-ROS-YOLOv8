@@ -1,0 +1,27 @@
+# Description: Tmuxp config to start YOLOv8 ROS nodes with debugging tools
+session_name: yolov8
+start_directory: ../
+windows:
+  - window_name: yolov8
+    layout: tiled
+    panes:
+      - shell_command:
+          - source /opt/ros/iron/setup.bash
+          - colcon build --packages-select yolov8 yolov8_interfaces
+          - source install/setup.bash
+          - ros2 launch yolov8 yolov8.launch.py
+      - shell_command:
+          - source /opt/ros/iron/setup.bash
+          - source install/setup.bash
+          - ros2 bag play -l ../yolov8_ros_bags/overtaken_right
+      - shell_command:
+          - source /opt/ros/iron/setup.bash
+          - source install/setup.bash
+          - ros2 launch yolov8 rviz2_yolov8.launch.py
+      - shell_command:
+          - source /opt/ros/iron/setup.bash
+          - source install/setup.bash
+          # Uncomment the line below to enable ros2 topic echo
+          # Sleep for 5 seconds to allow the other nodes to start
+          - sleep 25
+          - ros2 topic echo /yolov8/vimba_front_right_center/detections
