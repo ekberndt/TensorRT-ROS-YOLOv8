@@ -55,7 +55,7 @@ cmake -D CMAKE_BUILD_TYPE=RELEASE \
 -D BUILD_opencv_cudacodec=ON \
 -D WITH_CUDNN=ON \
 -D OPENCV_DNN_CUDA=ON \
--D WITH_QT=OFF \
+-D WITH_QT=ON \
 -D WITH_OPENGL=ON \
 -D BUILD_opencv_apps=OFF \
 -D BUILD_opencv_python2=OFF \
@@ -70,6 +70,7 @@ cmake -D CMAKE_BUILD_TYPE=RELEASE \
 -D WITH_FFMPEG=ON \
 -D CUDNN_INCLUDE_DIR=/usr/include/ \
 -D CUDNN_LIBRARY=/usr/lib/x86_64-linux-gnu/libcudnn.so \
+-D WITH_GTK=ON \
 ..
 
 # Compile using about half the available cores
