@@ -5,3 +5,6 @@ opencv_contrib-*
 
 # OpenCV persisted version file
 opencv_version.sh
+
+# OpenCV Build file folder
+opencv_build_files/
