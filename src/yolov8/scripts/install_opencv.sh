@@ -1,10 +1,28 @@
 # Description: This script downloads, builds, and installs OpenCV with CUDA support system wide.
 # It also updates the ldconfig cache to include the newly installed OpenCV library.
 
-OPENCV_VERSION=4.8.0
-# Version of CUDA_ARCH_BIN your GPU supports
-CUDA_ARCH_BIN=8.9
+# Check if correct number of arguments is provided
+if [ $# -ne 2 ]; then
+    echo "================================================================================"
+    echo "Script requires 2 arguments, but $# were provided"
+    echo "Usage: $0 <OpenCV_Version> <CUDA_ARCH_BIN>"
+    echo ""
+    echo "Args:"
+    echo "  OpenCV_Version: Version of OpenCV to build and install (i.e. 4.8.0)"
+    echo "  CUDA_ARCH_BIN: The architecture of GPU being built for. Look for your GPU's"
+    echo "      \"Compute Capability\" on https://developer.nvidia.com/cuda-gpus (i.e. 8.9)"
+    echo "================================================================================"
+    exit 1
+fi
 
+# Set variables from user input
+# Version of OpenCV to build (i.e. 4.8.0)
+OPENCV_VERSION=$1
+# Version of CUDA_ARCH_BIN your GPU supports as per "Compute Capability" on
+# https://developer.nvidia.com/cuda-gpus
+CUDA_ARCH_BIN=$2
+
+# Install OpenCV system wide
 INSTALL_LOCATION=/usr/local
 
 # Enter the directory where this script is located
@@ -82,7 +100,7 @@ fi
 echo "\
 
 ================================================================================
-Compiling OpenCV $OPENCV_VERSION with CUDA using $num_cores out of $(nproc) cores
+Compiling OpenCV $OPENCV_VERSION with CUDA using $num_cores out of the $(nproc) cores available
 ================================================================================
 "
 make -j $num_cores
