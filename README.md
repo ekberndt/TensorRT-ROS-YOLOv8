@@ -132,11 +132,31 @@ There are two tmuxp configurations in the `tmuxp` directory.
 
 ## Errors
 
-- If you get exit code `-9` while building / loading the TensorRT Engine you likely ran out of memory and may need to close other applications or use a different GPU / more memory.
-- If you get an error about no rclpy module check to make sure you are **not** using a conda environment as it may cause issues with the ROS2 environment.
-- If you get an error when you launch / run the ros node saying `libnvinfer.so.8: cannot open shared object file: No such file or directory`, make sure you added the TensorRT path to the `LD_LIBRARY_PATH` environment variable in your `~/.bashrc` file and sourced it as mentioned in [Installation / Dependencies](#installation--dependencies).
-- "Error, cuda_runtime_api.h could not determine number of CUDA-capable devices. Restart your computer. Error thrown by cuda_runtime_api.h: unknown error": This error seems to happen after the computer has been on for a long time and the GPU has been used a lot. Restarting the computer seems to fix this issue.
+In general if YOLOV8 is not working / crashing check the latest ros logs with the following command:
+
+```Bash
+cat ~/.ros/log/latest.log
+```
+
+A list of common errors and their solutions are below:
+
+- Exit code `-9` while building / loading the TensorRT Engine
+  - Your computer likely ran out of memory causing the OOM Killer to kill the program. Try closing other applications or using a different GPU / or a computer with more memory. Use `htop` to monitor memory usage and `nvidia-smi` to monitor GPU memory usage.
+- CUDA initialization failure with error: 46
+  - Make sure no other applications are taking control of the GPU. If you can't fix this issue, you can try restarting your computer.
+- An error about no rclpy module check
+  - Make sure you are **not** using a conda environment as it may cause issues with the ROS2 environment (ROS2 does not officially support conda environments).
+- An error when you launch / run the ros node saying `libnvinfer.so.8: cannot open shared object file: No such file or directory`
+  - _If you installed TensorRT as a TAR package_, make sure you added the TensorRT path to the `LD_LIBRARY_PATH` environment variable in your `~/.bashrc` file and sourced it as mentioned in [Installation / Dependencies](#installation--dependencies).
+- `Error, cuda_runtime_api.h could not determine number of CUDA-capable devices. Restart your computer. Error thrown by cuda_runtime_api.h: unknown error`
+  - This error seems to happen after the computer has been on for a long time and the GPU has been used a lot. Restarting the computer seems to fix this issue.
 
 ## Sources
 
 This project uses code and directions from [YOLOv8-TensorRT-CPP](https://github.com/cyrusbehr/YOLOv8-TensorRT-CPP) licensed under the MIT license.
+
+## TODO
+
+- Fix RViz2 Config
+- Fix Makefile build targets
+- Bring in CUDA Tools
