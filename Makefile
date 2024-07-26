@@ -26,7 +26,6 @@ help:
 	@echo ""
 	@echo "See Makefile for more information on each target."
 
-
 # -----------------------------------------------------------------------------
 # Target: install-opencv-cuda
 # Description: Builds and installs OpenCV with CUDA support system-wide using
