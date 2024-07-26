@@ -16,30 +16,68 @@ class YoloV8Node : public rclcpp::Node
 {
     public:
         YoloV8Node(YoloV8& yoloV8)
-        : Node("yolo_v8"), yoloV8_(yoloV8)
+        : Node("yolo_v8"), yoloV8_(yoloV8, const std::vector<std::string>& camera_topics, float buffer_hz)
         {
-            subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/vimba_front_right_center/image", 10, std::bind(&YoloV8Node::camera_callback, this, _1));
+            std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detectioons>::SharedPtr> detection_publishers_;
+            std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
+            std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> one_channel_mask_publishers_;
+            std::unordered_map<std::string, sensor_msgs::msg::Image> camera_buffer_;
+            float buffer_duration = 1 / buffer_hz;
+            ros::Timer buffer_timer_ = this0=->create_wall_timer(ros::Duration(buffer_duration), std::bimd(&YoloV8Node::batch_buffer, this));
+            buffer_timer_ = this->create_wall_timer(std::chrono::seconds(1), std::bind(&YoloV8Node::batch_buffer_callback, this));
+            camera_topics_ = camera_topics;
 
-            // rclcpp::Publisher::yolov8_interfaces::msg::YOLOv8Seg>::SharedPtr("/yolov8/detections", 10);
-            // rclcpp::Publisher::<sensor_msgs::msg::Image>::SharedPtr("/yolov8/Image", 10);
-
-            // Do these need to be shared pointers?
-            detection_publisher_ = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>("/yolov8/vimba_front_right_center/detections", 10);
-            image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/yolov8/vimba_front_right_center/Image", 10);
-            oneChannelMask_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("/yolov8/vimba_front_right_center/seg_mask_one_channel", 10);
+            // Create subscribers and publishers for all cameras
+            for (const std::string& topic : camera_topics) {
+                subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
+                    topic + "/image", 10, std::bind(&YoloV8Node::add_to_buffer_callback, this, _1)
+                );
+                subscriptions_.push_back(subscription_);
+                detection_publishers_[topic] = this->create_publisher<yolov8_interfaces::msg::Image>(
+                    "/yolov8" + topic + "/detections", 10
+                )
+                image_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
+                    "/yolov8" + topic + "/image", 10
+                )
+                one_channel_mask_publishers[topic] = this->create_publisher<sensor_msgs::msg::Image>(
+                    "/yolov8" + topic + "seg_mask_one_channel", 10
+                )
+            }
         }
 
     private:
-        void camera_callback(const sensor_msgs::msg::Image::ConstSharedPtr & image) const
+        void add_to_buffer_callback(const sensor::msg::Image::ConstSharedPtr& image) const {
+            
+            // TODO
+
+            // Check if ready for batching
+            if (camera_buffer_.size() == camera_topic_.size()) {
+                batch_buffer_callback();
+            }
+        }
+
+        void batch_buffer_callback() {
+            // Reset buffer timer
+            buffer_timer_->reset();
+            for (auto & camera : camera_buffer) {
+                // TODO: Change to process all images in the buffer
+                // camera_callback(camera.second);
+            }
+
+            // TODO: Check if batch is empty -> if so return
+
+            // TODO: batch to network
+
+            camera_buffer.clear();
+        }
+
+        void camera_callback(const sensor_msgs::msg::Image::ConstSharedPtr& image) const
         {
             // Convert ROS image to OpenCV image
             cv_bridge::CvImagePtr cv_ptr;
             try
             {
                 cv_ptr = cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::RGB8);
-                // RCLCPP_INFO(this->get_logger(), "Image | Encoding: %s | Height: %d | Width %d | Step %ld", cv_ptr->encoding.c_str(),
-                //     cv_ptr->image.rows, cv_ptr->image.cols, static_cast<long int>(cv_ptr->image.step));
             }
             catch (cv_bridge::Exception& e)
             {
@@ -127,20 +165,6 @@ class YoloV8Node : public rclcpp::Node
                     int label = object.label;
                     float prob = object.probability;
 
-                    // // Place each binary mask into the ROS message
-                    // sensor_msgs::msg::Image binaryMaskMsg;
-                    // cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>();
-                    // if (!detectedMasks.empty()) {
-                    //     cv_image->image = detectedMasks.back();
-                    //     detectedMasks.pop_back();
-                    // } else {
-                    //     RCLCPP_ERROR(this->get_logger(), "detectedMasks vector is empty");
-                    // }
-                    // cv_image->encoding = "bgr8"; // TODO: Change this to "mono8"?
-                    // cv_image->header.frame_id = image->header.frame_id;
-                    // Turn cv_image into sensor_msgs::msg::Image
-                    // cv_image->toImageMsg(binaryMaskMsg);
-
                     // Create yolov8_obj bounding box message
                     yolov8_interfaces::msg::Yolov8BBox bBoxMsg;
                     yolov8_interfaces::msg::Point2D point2DMsg;
@@ -164,13 +188,14 @@ class YoloV8Node : public rclcpp::Node
                 // Publish segmented image as ROS message
                 sensor_msgs::msg::Image displayImageMsg;
 
+                // TODO: Change to rgb8?
                 cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>();
                 cv_image->image = img.clone(); // TODO: Change this to mask? Too many copies?
                 cv_image->encoding = "bgr8";
                 cv_image->header.frame_id = image->header.frame_id;
                 // Turn cv_image into sensor_msgs::msg::Image
                 cv_image->toImageMsg(displayImageMsg);
-                displayImageMsg.header.stamp = rclcpp::Time(image->header.stamp.sec, image->header.stamp.nanosec);
+                displayImageMsg.header = image->header;
 
                 // Publish the messages
                 detection_publisher_->publish(detectionMsg);
@@ -181,8 +206,8 @@ class YoloV8Node : public rclcpp::Node
                 return;
             }
         }
-        rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
-        rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr detection_publisher_;
+        std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> subscriptions_;
+        std::unordered_map<rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr detection_publisher_;
         rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
         rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr oneChannelMask_publisher_;
         YoloV8& yoloV8_;
@@ -199,14 +224,25 @@ int main(int argc, char *argv[]) {
         RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", parseArgsError.c_str());
         return -1;
     }
-
     // Create the YoloV8 engine
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Creating YoloV8 engine --- Could take a while if Engine file is not already built and cached.");
-    // TODO: See why this sometimes maxes out the memory and causes program to get SIGKILLed (exit code -6)
     YoloV8 yoloV8(onnxModelPath, config);
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "YoloV8 engine created and initialized.");
+
+    // Create ROS2 Node
+    // TODO: Don't hard code params and instead use ROS params
+    std::vector<std::string> camera_topics = {
+        "/vimba_front",
+        "/vimba_front_left_center",
+        "/vimba_front_right_center",
+        "/vimba_left",
+        "/vimba_right",
+        "/vimba_rear"
+    };
+    float buffer_hz = 30;
+
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<YoloV8Node>(yoloV8));
+    rclcpp::spin(std::make_shared<YoloV8Node>(yoloV8, camera_topics, buffer_hz));
     rclcpp::shutdown();
     return 0;
 }
