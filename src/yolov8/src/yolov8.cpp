@@ -14,8 +14,8 @@ YoloV8::YoloV8(const std::string& onnxModelPath, const YoloV8Config& config)
         , KPS_THRESHOLD(config.kpsThreshold) {
     // Specify options for GPU inference
     Options options;
-    options.optBatchSize = 1;
-    options.maxBatchSize = 1;
+    options.optBatchSize = 4;
+    options.maxBatchSize = 6;
 
     options.precision = config.precision;
     options.calibrationDataDirectoryPath = config.calibrationDataDirectory;
@@ -547,14 +547,12 @@ void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects
  * This function takes a vector of detected masks and places them into a single channel image.
  * 
  * @param objects A vector of detected instance segmentation objects.
- * @param image The image the sizing of the segMaskOneChannel will be based on.
  * @param segMaskOneChannel The output image containing all the masks in a single channel.
+ * @param img_height The height of the original image.
+ * @param img_width The width of the original image.
  */
-void YoloV8::getOneChannelSegmentationMask(cv::Mat& image, const std::vector<Object>& objects, cv::Mat& segMaskOneChannel)
-{
-    int height = image.rows;
-    int width = image.cols;
-    segMaskOneChannel = cv::Mat::zeros(height, width, CV_8UC1);
+void YoloV8::getOneChannelSegmentationMask(const std::vector<Object>& objects, cv::Mat& segMaskOneChannel, int img_height, int img_width) {
+    segMaskOneChannel = cv::Mat::zeros(img_height, img_width, CV_8UC1);
     if (!objects.empty() && !objects[0].boxMask.empty()) {
         int i = 1;
         for (const auto& object: objects) {

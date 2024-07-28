@@ -48,7 +48,8 @@ struct YoloV8Config {
     // If you want to use your own custom classes, you can change these and YOU MUST add a color
     // to the COLOR_LIST below for each class. Match sure the number of colors matches the number of classes.
     std::vector<std::string> classNames = {
-        "drivable-area", "car"
+        "drivable-area",
+        "car",
     };
 };
 
@@ -62,7 +63,7 @@ public:
     std::vector<Object> detectObjects(const cv::cuda::GpuMat& inputImageBGR);
 
     // Create a one channel segmentation mask for all segmentation objects
-    void getOneChannelSegmentationMask(cv::Mat& image, const std::vector<Object>& objects, cv::Mat& segMaskOneChannel);
+    void getOneChannelSegmentationMask(const std::vector<Object>& objects, cv::Mat& segMaskOneChannel, int img_height, int img_width);
 
     // Draw the object bounding boxes and labels on the image
     void drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, unsigned int scale = 2);
