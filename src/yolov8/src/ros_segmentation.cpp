@@ -1,3 +1,5 @@
+# include <mutex>
+
 #include "yolov8.h"
 #include "cmd_line_util.h"
 #include "rclcpp/rclcpp.hpp"
@@ -19,30 +21,38 @@ class YoloV8Node : public rclcpp::Node
         : Node("yolo_v8"), yoloV8_(yoloV8)
         {
             camera_topics_ = camera_topics;
-            std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detectioons>::SharedPtr> detection_publishers_;
-            std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
-            std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> one_channel_mask_publishers_;
-            std::unordered_map<std::string, sensor_msgs::msg::Image> camera_buffer_;
 
             // Create timer for camera synchronization
             float buffer_duration = 1 / buffer_hz;
-            ros::Timer buffer_timer_ = this->create_wall_timer(ros::Duration(buffer_duration), std::bind(&YoloV8Node::batch_buffer, this));
+            buffer_timer_ = rclcpp::create_wall_timer(
+                std::chrono::duration<float>(buffer_duration),
+                std::bind(&YoloV8Node::batchBufferCallback, this),
+                nullptr,
+                this->get_node_base_interface().get(),
+                this->get_node_timers_interface().get()
+            );
 
             // Create subscribers and publishers for all cameras
             for (const std::string& topic : camera_topics) {
-                subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-                    topic + "/image", 10, std::bind(&YoloV8Node::addToBufferCallback, this, _1, topic)
+                rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
+                    topic + "/image", 10,
+                    [this, topic](const sensor_msgs::msg::Image::SharedPtr msg)
+                    {
+                        this->addToBufferCallback(msg, topic);
+                    }
                 );
+                
+
                 subscriptions_.push_back(subscription_);
-                detection_publishers_[topic] = this->create_publisher<yolov8_interfaces::msg::Image>(
+                detection_publishers_[topic] = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>(
                     "/yolov8" + topic + "/detections", 10
-                )
+                );
                 image_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
                     "/yolov8" + topic + "/image", 10
-                )
-                one_channel_mask_publishers[topic] = this->create_publisher<sensor_msgs::msg::Image>(
+                );
+                one_channel_mask_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
                     "/yolov8" + topic + "seg_mask_one_channel", 10
-                )
+                );
             }
         }
 
@@ -55,38 +65,62 @@ class YoloV8Node : public rclcpp::Node
         * @param image_msg: The image message from the camera
         * @param topic: The ROS topic the image message was published on
         */
-        void addToBufferCallback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg, std::string topic) const {
+        void addToBufferCallback(const sensor_msgs::msg::Image::SharedPtr &image_msg, const std::string topic) {
             // TODO: Will this be deleted in memory since it is passed?
-            camera_buffer_[topic] = image_msg;
+            std::lock_guard<std::mutex> guard(buffer_mutex_);
+            current_buffer_[topic] = image_msg;
 
             // Check if ready for batching
-            if (camera_buffer_.size() == camera_topic_.size()) {
-                batchBufferCallback(image_msg);
+            if (current_buffer_.size() == topic.size()) {
+                batchBufferCallback();
             }
         }
 
-        void batchBufferCallback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg) {
+        void batchBufferCallback() {
+            // Swap the current buffer with the processing buffer
+            std::unique_lock<std::mutex> lock(buffer_mutex_);
+            lock.lock();
+            std::swap(current_buffer_, processing_buffer_);
+            // Clear the current buffer
+            current_buffer_.clear();
+            lock.unlock();
+
             // Reset buffer timer
             buffer_timer_->reset();
-            // TODO: Does the camera buffer need to be copied?
+
+            // Check if all the camera topics are in the processing buffer
+            checkCameraTopicsInBuffer();
+
             // Preprocess the input
             std::vector<cv::Mat> images;
-            preprocess_callback(&images);
-
-            // TODO: Check if batch is empty -> if so return and throw warning
+            preprocess_callback(images);
 
             // TODO: batch to network properly
             // Run inference
-            const auto objects = yoloV8_.detectObjects(image);
+            std::vector<std::vector<Object>> objects = yoloV8_.detectObjects(images);
             RCLCPP_INFO(this->get_logger(), "Detected %zu objects", objects.size());
             // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
             // RCLCPP_INFO(this->get_logger(), "Mask Shape: %s", objects[0].boxMask.size());
 
-            // Clear the camera buffer
-            camera_buffer.clear();
-
             // Postprocess the output and publish the results
-            postprocess_callback(objects, image);
+            postprocess_callback(objects, images);
+        }
+
+        /*
+        * Check if all camera topics are in the processing buffer and print out any missing topics
+        */
+        void checkCameraTopicsInBuffer() {
+            if (processing_buffer_.size() != camera_topics_.size()) {
+                RCLCPP_WARN(this->get_logger(), "No camera topics are in the processing buffer");
+                return;
+            // Print out camera topics missing from the processing buffer
+            } else {
+                for (const std::string& topic : camera_topics_) {
+                    if (processing_buffer_.find(topic) == processing_buffer_.end()) {
+                        RCLCPP_WARN(this->get_logger(), "Camera topic %s is missing from the processing buffer", topic.c_str());
+                    }
+                }
+            }
         }
 
         /*
@@ -94,17 +128,16 @@ class YoloV8Node : public rclcpp::Node
         * and converting from RGB8 to BGR8
         *
         * @param images: the vector to store the preprocessed images
-        * @returns The preprocessed image(s) for the neural network
         */
-        cv::Mat preprocess_callback(std::vector<cv::Mat>& images) const {
-            for (const auto& pair : camera_buffer_) {
+        void preprocess_callback(std::vector<cv::Mat>& images) {
+            for (const auto& pair : processing_buffer_) {
                 std::string topic = pair.first;
-                image::msg::Image::ConstSharedPtr image_msg = pair.second;
+                const sensor_msgs::msg::Image::SharedPtr image_msg = pair.second;
                 try
                     {
                         // Share the memory with the original image
                         // TODO: Should this be a copy to deal with a cleared buffer?
-                        cv_bridge::CvImagePtr cv_ptr;
+                        cv_bridge::CvImageConstPtr cv_ptr;
                         cv_ptr = cv_bridge::toCvShare(image_msg, sensor_msgs::image_encodings::RGB8);
 
                         // Convert from RGB8 to BGR8
@@ -114,7 +147,7 @@ class YoloV8Node : public rclcpp::Node
                         images.push_back(img);
                     } catch (cv_bridge::Exception& e) {
                         RCLCPP_ERROR(this->get_logger(), "Failed to convert ROS image message on topic %s \
-                            due to cv_bridge error: %s", image_msg, e.what());
+                            due to cv_bridge error: %s", topic.c_str(), e.what());
                         continue;
                     }
             }
@@ -123,90 +156,114 @@ class YoloV8Node : public rclcpp::Node
         /*
         * Convert output(s) from Neural Network to ROS messages and publish them
         *
-        * @param objects: Detected objects from the neural network
-        * @param image: Original ROS image from the camera
+        * @param objects: Detected objects in each image from the neural network
+        * @param images: The images that the objects were detected in
         */
-        void postprocess_callback(std::vector<Object> objects, const sensor_msgs::msg::Image::ConstSharedPtr& image) const {
+        void postprocess_callback(std::vector<std::vector<Object>> objects, std::vector<cv::Mat> images) {
             // TODO: Make these flags ROS parameters
-            bool visualizeMasks = true;
-            bool enableOneChannelMask = true;
-            bool visualizeOneChannelMask = true;
+            bool visualize_masks = true;
+            bool enable_one_channel_mask = true;
+            bool visualize_one_channel_mask = true;
 
-            // ROS message to publish the detections
-            yolov8_interfaces::msg::Yolov8Detections detectionMsg;
-            detectionMsg.header = image->header;
+            int i = 0;
+            for (const auto& pair : processing_buffer_) {
+                const std::string topic = pair.first;
+                const sensor_msgs::msg::Image::SharedPtr image_msg = pair.second;
+                cv::Mat image = images[i];
+                // ROS message to publish the detections
+                yolov8_interfaces::msg::Yolov8Detections detectionMsg;
+                detectionMsg.header = image_msg->header;
 
-            if (enableOneChannelMask) {
-                publishOneChannelMask(objects, visualizeOneChannelMask, image);
+                if (enable_one_channel_mask) {
+                    // TODO fix how batched objects are handled
+                    publishOneChannelMask(objects[i], visualize_one_channel_mask, image_msg, detectionMsg,
+                        topic);
+                }
+
+                // Draw the segmentation masks and bounding boxes on the image
+                // to visualize the detections
+                if (visualize_masks) {
+                    // TODO fix how batched objects are handled
+                    visualizeMask(objects[i], image, topic, image_msg);
+                }
+
+                // Convert detected objects to ROS message
+                // TODO fix how batched objects are handled
+                addObjectsToDetectionMsg(objects[i], detectionMsg);
+
+                // Publish the detections
+                detection_publishers_[topic]->publish(detectionMsg);
+                i++;
             }
-
-            // Draw the segmentation masks and bounding boxes on the image
-            // to visualize the detections
-            if (visualizeMasks) {
-                // Draw the object labels on the image
-                yoloV8_.drawObjectLabels(img, objects);
-
-                // Turn cv_image into sensor_msgs::msg::Image
-                sensor_msgs::msg::Image displayImageMsg;
-                // TODO: Change to rgb8?
-                cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>(
-                    image->header, "bgr8", img
-                );
-                cv_image->image = img;
-                cv_image->encoding = "bgr8";
-                cv_image->header.frame_id = image->header.frame_id;
-                cv_image->toImageMsg(displayImageMsg);
-                displayImageMsg.header = image->header;
-                // Publish segmented image as ROS message
-                image_publisher_->publish(displayImageMsg);
-            }
-
-            // Convert detected objects to ROS message
-            addObjectsToDetectionMsg(objects, detectionMsg);
-
-            // Publish the detections
-            detection_publisher_->publish(detectionMsg);
         }
 
         /*
-        * Create a one channel mask for all segmentation objects and publish it. Optionally visualize the mask.
+        * Visualize the segmentation masks and bounding boxes on the image and publish it
+        * to the given topic.
         *
         * @param objects: Detected objects from the neural network
-        * @param visualizeOneChannelMask: Whether to visualize the one channel mask
-        * @param image_msg: Original ROS image from the camera
+        * @param image: The image to visualize the masks on
+        * @param topic: The ROS topic to publish the image to
+        * @param image_msg: The original ROS image message from the camera
         */
-        void publishOneChannelMask(std::vector<Object> objects, bool visualizeOneChannelMask, const sensor_msgs::msg::Image::ConstSharedPtr& image_msg) const {
+        void visualizeMask(std::vector<Object> objects, cv::Mat image,
+                const std::string topic,
+                const sensor_msgs::msg::Image::SharedPtr image_msg) {
+            // Draw the object labels on the image
+            yoloV8_.drawObjectLabels(image, objects);
+
+            // Turn cv_image into sensor_msgs::msg::Image
+            sensor_msgs::msg::Image displayImageMsg;
+            // TODO: Change to rgb8?
+            cv_bridge::CvImagePtr cv_image = std::make_shared<cv_bridge::CvImage>(
+                image_msg->header, "bgr8", image
+            );
+            cv_image->toImageMsg(displayImageMsg);
+            // Publish segmented image as ROS message
+            image_publishers_[topic]->publish(displayImageMsg);
+        }
+
+        /*
+        * Create a one channel mask for all segmentation objects and publish it. Adds oneChannelMask
+        * to detectionMsg. Optionally visualize the mask.
+        *
+        * @param objects: Detected objects from the neural network
+        * @param visualize_one_channel_mask: Whether to visualize the one channel mask
+        * @param image_msg: Original ROS image from the camera
+        * @param detectionMsg: ROS message to publish detections
+        * @param topic: The ROS topic to publish the mask to
+        */
+        void publishOneChannelMask(std::vector<Object> objects, bool visualize_one_channel_mask,
+                const sensor_msgs::msg::Image::ConstSharedPtr& image_msg,
+                yolov8_interfaces::msg::Yolov8Detections detectionMsg,
+                const std::string topic) {
             cv::Mat oneChannelMask;
             int img_width = image_msg->width;
             int img_height = image_msg->height;
             yoloV8_.getOneChannelSegmentationMask(objects, oneChannelMask, img_width, img_height);
             // Use ROS cv_bridge to convert cv::Mat to sensor_msgs::msg::Image and take header from original camera image
             try {
-                cv_bridge::CvImage cvBridgeOneChannelMask = cv_bridge::CvImage();
-                cvBridgeOneChannelMask.image = oneChannelMask;
+                cv_bridge::CvImage cvBridgeOneChannelMask = cv_bridge::CvImage(
+                    image_msg->header, "mono8", oneChannelMask
+                );
                 detectionMsg.seg_mask_one_channel = *cvBridgeOneChannelMask.toImageMsg();
-                detectionMsg.seg_mask_one_channel.header = image_msg->header;
-                detectionMsg.seg_mask_one_channel.encoding = "mono8";
             } catch (cv_bridge::Exception& e) {
                 RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
                 return;
             }
 
             // Publish the one channel mask with RGB color for visualization only
-            if (visualizeOneChannelMask) {
+            if (visualize_one_channel_mask) {
                 cv::Mat oneChannelMaskRGB8 = visualizeOneChannelMask(oneChannelMask);
                 try {
-                    // Publish the 3-channel RGB mask as a ROS message
-                    cv_bridge::CvImage cvBridgeOneChannelMaskRGB8 = cv_bridge::CvImage();
-                    cvBridgeOneChannelMaskRGB8.image = oneChannelMaskRGB8;
-                    cvBridgeOneChannelMaskRGB8.header = image_msg->header;
-                    cvBridgeOneChannelMaskRGB8.encoding = "rgb8";
+                    cv_bridge::CvImage cvBridgeOneChannelMaskRGB8 = cv_bridge::CvImage(
+                        image_msg->header, "rgb8", oneChannelMaskRGB8
+                    );
+                    one_channel_mask_publishers_[topic]->publish(*cvBridgeOneChannelMaskRGB8.toImageMsg());
                 } catch (cv_bridge::Exception& e) {
                     RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
                     return;
                 }
-
-                oneChannelMask_publisher_->publish(*cvBridgeOneChannelMaskRGB8.toImageMsg());
             }
         }
 
@@ -216,7 +273,8 @@ class YoloV8Node : public rclcpp::Node
         * @param objects: Detected objects from the neural network
         * @param detectionMsg: The yolov8detections message to add the objects to
         */
-        void addObjectsToDetectionMsg(auto objects, auto detectionMsg) {
+        void addObjectsToDetectionMsg(std::vector<Object> objects,
+                yolov8_interfaces::msg::Yolov8Detections detectionMsg) const {
             // Convert detected objects to ROS message
             // Start at index 1 because index 0 is the background class
             int index = 1;
@@ -250,7 +308,7 @@ class YoloV8Node : public rclcpp::Node
         * @param oneChannelMask: The one channel mask to visualize
         * @return The one channel mask as a RGB image
         */
-        cv::Mat visualizeOneChannelMask(auto oneChannelMask) {
+        cv::Mat visualizeOneChannelMask(cv::Mat oneChannelMask) const {
             try {
                 // Draw the one channel mask on the image
                 // Convert the one channel mask to 8-bit
@@ -261,17 +319,26 @@ class YoloV8Node : public rclcpp::Node
                 cv::cvtColor(oneChannelMask8U, oneChannelMaskRGB8, cv::COLOR_GRAY2RGB);
                 // Normalize the one channel mask to 0-255 so it can be displayed as an RGB image
                 cv::normalize(oneChannelMaskRGB8, oneChannelMaskRGB8, 0, 255, cv::NORM_MINMAX);
+                return oneChannelMaskRGB8;
             } catch (cv::Exception& e) {
                 RCLCPP_ERROR(this->get_logger(), "OpenCV exception: %s", e.what());
-                return;
+                return cv::Mat();
             }
-            return oneChannelMaskRGB8;
         }
 
+        std::vector<std::string> camera_topics_;
+        std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr> detection_publishers_;
+        std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
+        std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> one_channel_mask_publishers_;
+        rclcpp::TimerBase::SharedPtr buffer_timer_;
+        std::unordered_map<std::string, sensor_msgs::msg::Image::SharedPtr> current_buffer_;
+        std::unordered_map<std::string, sensor_msgs::msg::Image::SharedPtr> processing_buffer_;
+        std::mutex buffer_mutex_;
+
         std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> subscriptions_;
-        std::unordered_map<rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr detection_publisher_;
-        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
-        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr oneChannelMask_publisher_;
+        // std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr> detection_publisher_;
+        // rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
+        // rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr oneChannelMask_publisher_;
         YoloV8& yoloV8_;
         };
 
