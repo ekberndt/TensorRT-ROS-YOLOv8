@@ -58,9 +58,13 @@ public:
     // Builds the onnx model into a TensorRT engine, and loads the engine into memory
     YoloV8(const std::string& onnxModelPath, const YoloV8Config& config);
 
-    // Detect the objects in the image
-    std::vector<Object> detectObjects(const cv::Mat& inputImageBGR);
-    std::vector<Object> detectObjects(const cv::cuda::GpuMat& inputImageBGR);
+    // Upload image(s) to GPU then call detectObjects
+    std::vector<Object> detectObjects(const cv::Mat& imgMat);
+    std::vector<std::vector<Object>> detectObjects(std::vector<cv::Mat> &imgMat); // Batched version
+
+    // Run inference on objects uploaded to the GPU
+    std::vector<Object> detectObjects(const cv::cuda::GpuMat& imgMat);
+    std::vector<std::vector<Object>> detectObjects(std::vector<cv::cuda::GpuMat> &imgMat);  // Batched version
 
     // Create a one channel segmentation mask for all segmentation objects
     void getOneChannelSegmentationMask(const std::vector<Object>& objects, cv::Mat& segMaskOneChannel, int img_height, int img_width);
@@ -77,6 +81,7 @@ public:
 private:
     // Preprocess the input
     std::vector<std::vector<cv::cuda::GpuMat>> preprocess(const cv::cuda::GpuMat& gpuImg);
+    std::vector<std::vector<cv::cuda::GpuMat>> preprocess(std::vector<cv::cuda::GpuMat> &gpuImg); // Batched version
 
     // Postprocess the output
     std::vector<Object> postprocessDetect(std::vector<float>& featureVector);
@@ -87,8 +92,6 @@ private:
     // Postprocess the output for segmentation model
     std::vector<Object> postProcessSegmentation(std::vector<std::vector<float>>& featureVectors);
 
-
-
     std::unique_ptr<Engine> m_trtEngine = nullptr;
 
     // Used for image preprocessing
@@ -96,10 +99,11 @@ private:
     const std::array<float, 3> SUB_VALS {0.f, 0.f, 0.f};
     const std::array<float, 3> DIV_VALS {1.f, 1.f, 1.f};
     const bool NORMALIZE = true;
-
-    float m_ratio = 1;
-    float m_imgWidth = 0;
-    float m_imgHeight = 0;
+    
+    // Image dimensions gathered from the input image
+    float m_ratio_ = 1;
+    float m_imgWidth_ = 0;
+    float m_imgHeight_ = 0;
 
     // Filter thresholds
     const float PROBABILITY_THRESHOLD;

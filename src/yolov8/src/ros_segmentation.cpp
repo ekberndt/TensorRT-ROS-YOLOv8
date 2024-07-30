@@ -92,6 +92,7 @@ class YoloV8Node : public rclcpp::Node
             checkCameraTopicsInBuffer();
 
             // Preprocess the input
+            // TODO: where are these images coming from????
             std::vector<cv::Mat> images;
             preprocess_callback(images);
 
