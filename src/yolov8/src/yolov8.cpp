@@ -15,7 +15,7 @@ YoloV8::YoloV8(const std::string& onnxModelPath, const YoloV8Config& config)
     // Specify options for GPU inference
     Options options;
     options.optBatchSize = 4;
-    options.maxBatchSize = 6;
+    options.maxBatchSize = 4;
 
     options.precision = config.precision;
     options.calibrationDataDirectoryPath = config.calibrationDataDirectory;
@@ -36,7 +36,7 @@ YoloV8::YoloV8(const std::string& onnxModelPath, const YoloV8Config& config)
     auto succ = m_trtEngine->build(onnxModelPath, SUB_VALS, DIV_VALS, NORMALIZE);
     if (!succ) {
         const std::string errMsg = "Error: Unable to build the TensorRT engine. "
-                                   "Try increasing TensorRT log severity to kVERBOSE (in /libs/tensorrt-cpp-api/engine.cpp).";
+                                   "Try increasing TensorRT log severity to kVERBOSE (in src/yolov8/libs/tensorrt-cpp-api/engine.cpp).";
         throw std::runtime_error(errMsg);
     }
 
@@ -54,9 +54,22 @@ YoloV8::YoloV8(const std::string& onnxModelPath, const YoloV8Config& config)
 */
 std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(std::vector<cv::cuda::GpuMat> &gpuImgs) {
     // Populate the input vectors
-    const auto& inputDims = m_trtEngine->getInputDims();
+    const std::vector<nvinfer1::Dims3>& inputDims = m_trtEngine->getInputDims();
+    std::cout << "Engine input dims: " << inputDims[0].d[0] << ", " << inputDims[0].d[1] << ", " << inputDims[0].d[2] << ", " << inputDims[0].d[3] << std::endl;
     std::vector<std::vector<cv::cuda::GpuMat>> inputs {};
 
+    // Store the original image dimensions and the ratio used to resize the image so we can convert the
+    // outputs back to the original image size in the post-processing stage
+    // Grab a sample image to get the image dimensions
+    const cv::cuda::GpuMat sampleImg = gpuImgs[0];
+    // These params will be used in the post-processing stage
+    // TODO: What if different images in the batch have different dimensions?
+    m_imgHeight_ = sampleImg.rows;
+    m_imgWidth_ = sampleImg.cols;
+    m_ratio_ =  1.f / std::min(inputDims[0].d[2] / static_cast<float>(sampleImg.cols),
+        inputDims[0].d[1] / static_cast<float>(sampleImg.rows));
+
+    // Iterate over each image in the batch
     for (cv::cuda::GpuMat &gpuImg : gpuImgs) {
          // Resize to the model expected input size while maintaining the aspect ratio with the use of padding
         if (gpuImg.rows != inputDims[0].d[1] || gpuImg.cols != inputDims[0].d[2]) {
@@ -65,20 +78,12 @@ std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(std::vector<cv::cu
         }
 
         // Convert to format expected by our inference engine
-        // Input is (N, ?, H, W) ?
+        // Input is (N, C, H, W)
         // The reason for the strange format is because it supports models with multiple inputs as well as batching
         // In our case though, the model only has a single input and we are using a batch size of N.
         std::vector<cv::cuda::GpuMat> input{std::move(gpuImg)};
         inputs.push_back(std::move(input));
     };
-
-    // Grab a sample image to get the image dimensions
-    const cv::cuda::GpuMat sampleImg = gpuImgs[0];
-    // These params will be used in the post-processing stage
-    m_imgHeight_ = sampleImg.rows;
-    m_imgWidth_ = sampleImg.cols;
-    m_ratio_ =  1.f / std::min(inputDims[0].d[2] / static_cast<float>(sampleImg.cols),
-        inputDims[0].d[1] / static_cast<float>(sampleImg.rows));
 
     return inputs;
 }
@@ -110,6 +115,11 @@ std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(const cv::cuda::Gp
     return inputs;
 }
 
+/*
+* Run inference on a single image (does not support batching).
+*
+* @param gpuImgs: a vector of input images
+*/
 std::vector<Object> YoloV8::detectObjects(const cv::cuda::GpuMat &imgMat) {
     // Preprocess the input image
 #ifdef ENABLE_BENCHMARKS
@@ -173,7 +183,7 @@ std::vector<Object> YoloV8::detectObjects(const cv::cuda::GpuMat &imgMat) {
 }
 
 /*
-* Run inference on a batch of images
+* Run inference on a batch of images. Note this function only support segmentation models.
 * 
 * @param gpuImgs: a vector of input images
 */
@@ -198,39 +208,18 @@ std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::cuda::Gpu
     if (!succ) {
         throw std::runtime_error("Error: Unable to run inference.");
     }
+    std::cout << "Batch size (feature vectors size): " << featureVectors.size() << std::endl;
+    std::cout << "Number of output buffers (Feature vectors[0] size): " << featureVectors[0].size() << std::endl;
+    std::cout << "Size of the first output buffer (Feature vectors[0][0] size): " << featureVectors[0][0].size() << std::endl;
+    std::cout << "Size of the second output buffer (Feature vectors[1][0] size): " << featureVectors[0][1].size() << std::endl;
 #ifdef ENABLE_BENCHMARKS
     static long long t2 = 0;
     t2 += s2.elapsedTime<long long, std::chrono::microseconds>();
     std::cout << "Avg Inference time: " << (t2 / numIts) / 1000.f << " ms" << std::endl;
     preciseStopwatch s3;
 #endif
-    // Check if our model does only object detection or also supports segmentation
-    std::vector<Object> ret;
-    const auto& numOutputs = m_trtEngine->getOutputDims().size();
-    if (numOutputs == 1) {
-        // Object detection or pose estimation
-        // Since we have a batch size of 1 and only 1 output, we must convert the output from a 3D array to a 1D array.
-        std::vector<float> featureVector;
-        Engine::transformOutput(featureVectors, featureVector);
-
-        const auto& outputDims = m_trtEngine->getOutputDims();
-        int numChannels = outputDims[outputDims.size() - 1].d[1];
-        // TODO: Need to improve this to make it more generic (don't use magic number).
-        // For now it works with Ultralytics pretrained models.
-        if (numChannels == 56) {
-            // Pose estimation
-            ret = postprocessPose(featureVector);
-        } else {
-            // Object detection
-            ret = postprocessDetect(featureVector);
-        }
-    } else {
-        // Segmentation
-        // Since we have a batch size of 1 and 2 outputs, we must convert the output from a 3D array to a 2D array.
-        std::vector<std::vector<float>> featureVector;
-        Engine::transformOutput(featureVectors, featureVector);
-        ret = postProcessSegmentation(featureVector);
-    }
+    std::vector<std::vector<Object>> ret;
+    ret = postProcessSegmentation(featureVectors);
 #ifdef ENABLE_BENCHMARKS
     static long long t3 = 0;
     t3 +=  s3.elapsedTime<long long, std::chrono::microseconds>();
@@ -260,27 +249,33 @@ std::vector<Object> YoloV8::detectObjects(const cv::Mat &imgMat) {
  * @param imgMat The batched images in BGR format.
  * @return A vector of detected objects.
  */
-std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::Mat> &imgMat) {
+std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::Mat> &imgMats) {
     std::vector<cv::cuda::GpuMat> gpuImgs;
-    // Upload the images to GPU memory
-    std::vector<cv::cuda::Stream> streams(imgMat.size());
+    // // Upload the images to GPU memory
+    // std::vector<cv::cuda::Stream> streams(imgMats.size());
 
-    // Asynchronously upload each image on their own CUDA stream
-    for (size_t i = 0; i < imgMat.size(); i++) {
-        gpuImgs[i].upload(imgMat, streams[i]);
-    }
+    // // Asynchronously upload each image on their own CUDA stream
+    // std::cout << "imgsMats size: " << imgMats.size() << std::endl;
+    // for (size_t i = 0; i < imgMats.size(); i++) {
+    //     try {
+    //         gpuImgs[i].upload(imgMats[i], streams[i]);
+    //     } catch (const cv::Exception& e) {
+    //         std::cerr << "Error uploading image to GPU: " << e.what() << std::endl;
+    //     }
+    // }
 
-    // Make sure all streams have finished uploading
-    for (cv::cuda::Stream &stream : streams) {
-        stream.waitForCompletion();
-    }
+    // std::cout << "Syncing streams" << std::endl;
+    // // Make sure all streams have finished uploading
+    // for (cv::cuda::Stream &stream : streams) {
+    //     stream.waitForCompletion();
+    // }
     
     // TODO: Bench Upload with CUDA streams vs sequentially
-    // for (const cv::Mat& img : imgMat) {
-    //     cv::cuda::GpuMat gpuImg;
-    //     gpuImg.upload(img);
-    //     gpuImgs.push_back(gpuImg);
-    // }
+    for (const cv::Mat& img : imgMats) {
+        cv::cuda::GpuMat gpuImg;
+        gpuImg.upload(img);
+        gpuImgs.push_back(gpuImg);
+    }
     
 
     // Call detectObjects with the GPU image
@@ -288,7 +283,22 @@ std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::Mat> &img
 }
 
 /**
- * Performs post-processing on the segmentation feature vectors.
+ * Performs post-processing on a batch of image's segmentation feature vectors.
+ * 
+ * @param featureVectors The batched vector of 2D feature vectors to be processed.
+ * @return A batch of vectors of Object instances representing the post-processed segmentation results.
+ * @throws std::logic_error If the feature vectors are not of the expected length.
+ */
+std::vector<std::vector<Object>> YoloV8::postProcessSegmentation(std::vector<std::vector<std::vector<float>>>& batchedFeatureVectors) {
+    std::vector<std::vector<Object>> batched_objects;
+    for (std::vector<std::vector<float>> &featureVectors : batchedFeatureVectors) {
+        batched_objects.push_back(postProcessSegmentation(featureVectors));
+    }
+    return batched_objects;
+}
+
+/**
+ * Performs post-processing on a single image's segmentation feature vectors (Does not support batching).
  * 
  * @param featureVectors The 2D feature vectors to be processed.
  * @return A vector of Object instances representing the post-processed segmentation results.
@@ -296,6 +306,7 @@ std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::Mat> &img
  */
 std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<float>>& featureVectors) {
     // Retrieve the output dimensions
+    // TODO: For the batched version, should we check the output dimensions of each batch? (Likely yes as camera feeds may have different resolutions)
     const auto& outputDims = m_trtEngine->getOutputDims();
 
     int numChannels = outputDims[outputDims.size() - 1].d[1];
@@ -303,13 +314,13 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
 
     const auto numClasses = numChannels - SEG_CHANNELS - 4;
 
-    // Ensure the output lengths are correct
+    // Ensure the lengths of each output buffer are correct
     if (featureVectors[0].size() != static_cast<size_t>(SEG_CHANNELS) * SEG_H * SEG_W) {
-        throw std::logic_error("Output at index 0 has incorrect length");
+        throw std::logic_error("Output buffer output at index 0 has incorrect length");
     }
 
     if (featureVectors[1].size() != static_cast<size_t>(numChannels) * numAnchors) {
-        throw std::logic_error("Output at index 1 has incorrect length");
+        throw std::logic_error("Output buffer output at index 1 has incorrect length");
     }
 
     cv::Mat output = cv::Mat(numChannels, numAnchors, CV_32F, featureVectors[1].data());
@@ -419,8 +430,6 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
             );
             // Convert to binary mask for pixels above segmentation threshold
             objs[i].boxMask = mask(objs[i].rect) > SEGMENTATION_THRESHOLD;
-            // // Generate contours of binary mask
-            // cv::findContours(objs[i].boxMask, objs[i].contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
         }
     }
 
@@ -506,7 +515,8 @@ std::vector<Object> YoloV8::postprocessPose(std::vector<float> &featureVector) {
         cnt += 1;
     }
 
-    return objects;}
+    return objects;
+}
 
 std::vector<Object> YoloV8::postprocessDetect(std::vector<float> &featureVector) {
     const auto& outputDims = m_trtEngine->getOutputDims();

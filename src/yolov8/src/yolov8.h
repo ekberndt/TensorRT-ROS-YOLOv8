@@ -36,7 +36,7 @@ struct YoloV8Config {
     float nmsThreshold = 0.65f;
     // Max number of detected objects to return
     int topK = 100;
-    // Segmentation config options
+    // Segmentation config options (these are the output dimensions of the ONNX model - from output1 in the ONNX graph)
     int segChannels = 32;
     int segH = 160;
     int segW = 160;
@@ -45,11 +45,12 @@ struct YoloV8Config {
     int numKPS = 17;
     float kpsThreshold = 0.5f;
     // Class thresholds (default are COCO classes)
-    // If you want to use your own custom classes, you can change these and YOU MUST add a color
-    // to the COLOR_LIST below for each class. Match sure the number of colors matches the number of classes.
+    // If you want to use your own custom classes, you can change the strings where each index of the vector
+    // maps to the class number (i.e. 0 -> "car"). YOU MUST add a color to the COLOR_LIST below for each
+    // class. Match sure the number of colors matches the number of classes.
     std::vector<std::string> classNames = {
-        "drivable-area",
         "car",
+        "drivable-area",
     };
 };
 
@@ -90,6 +91,7 @@ private:
     std::vector<Object> postprocessPose(std::vector<float>& featureVector);
 
     // Postprocess the output for segmentation model
+    std::vector<std::vector<Object>> postProcessSegmentation(std::vector<std::vector<std::vector<float>>>& batchedFeatureVectors); // Batched version
     std::vector<Object> postProcessSegmentation(std::vector<std::vector<float>>& featureVectors);
 
     std::unique_ptr<Engine> m_trtEngine = nullptr;
