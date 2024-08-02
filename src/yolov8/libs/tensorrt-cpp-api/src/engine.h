@@ -71,9 +71,9 @@ struct Options {
     // Should be set to as large a batch number as your GPU will support.
     int32_t calibrationBatchSize = 128;
     // The batch size which should be optimized for.
-    int32_t optBatchSize = 1;
+    int32_t optBatchSize = 4;
     // Maximum allowable batch size
-    int32_t maxBatchSize = 16;
+    int32_t maxBatchSize = 6;
     // GPU device index
     int deviceIndex = 0;
 };
@@ -106,7 +106,9 @@ private:
     std::vector<char> m_calibCache;
 };
 
-// Class to extend TensorRT logger
+/**
+ * The logger TensorRT needs for the Builder, ONNX Parser, and Runtime interfaces.
+ */
 class Logger : public nvinfer1::ILogger {
     void log (Severity severity, const char* msg) noexcept override;
 };

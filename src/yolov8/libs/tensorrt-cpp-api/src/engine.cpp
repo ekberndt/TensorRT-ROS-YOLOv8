@@ -19,13 +19,20 @@ std::vector<std::string> Util::getFilesInDirectory(const std::string& dirPath) {
     return filepaths;
 }
 
+/**
+ * Creates the logs that TensorRT needs for the Builder, ONNX Parser, and Runtime interfaces.
+ *
+ * @param severity The serverity level of the log message.
+ * @param msg The message to log.
+ */
 void Logger::log(Severity severity, const char *msg) noexcept {
     // Would advise using a proper logging utility such as https://github.com/gabime/spdlog
     // For the sake of this tutorial, will just log to the console.
 
     // Only log Warnings or more important.
-    // if (severity <= Severity::kWARNING) {
+    // TODO: make this a param
     if (severity <= Severity::kVERBOSE) {
+    // if (severity <= Severity::kVERBOSE) {
         std::cout << msg << std::endl;
     }
 }
@@ -34,7 +41,9 @@ Engine::Engine(const Options &options)
     : m_options(options) {}
 
 /**
- * Builds the TensorRT engine using the specified ONNX model file and engine options.
+ * Builds the TensorRT engine by converted the specified ONNX model
+ * using the ONNX Parser and creating a Builder to build the engine
+ * with engine options.
  * 
  * @param onnxModelPath The path to the ONNX model file.
  * @param subVals The array of subtraction values used for input preprocessing.
@@ -65,16 +74,15 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
     // Was not able to find the engine file, generate...
     std::cout << "Engine not found, generating. This could take a while..." << std::endl;
 
-    // Create our engine builder.
-    // TODO: createInferBuilder fails when cuda runtime cannot determine number of GPUs from above
+    // Create the TensorRT Build
     auto builder = std::unique_ptr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(m_logger));
     if (!builder) {
         return false;
     }
 
-    // Define an explicit batch size and then create the network (implicit batch size is deprecated).
-    // More info here: https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html#explicit-implicit-batch
+    // Set kEXPLICIT_BATCH flag via bit shifting for the NetworkDefinition as the ONNX PARSER does not support implicit batch sizes
     auto explicitBatch = 1U << static_cast<uint32_t>(NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
+    // Create the NetworkDefinition for the Build and specify the explicit batch flag
     auto network = std::unique_ptr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicitBatch));
     if (!network) {
         return false;
@@ -105,9 +113,11 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
 
     // Ensure that all the inputs have the same batch size
     const auto numInputs = network->getNbInputs();
+    std::cout << "Model has " << numInputs << " input(s)" << std::endl;
     if (numInputs < 1) {
         throw std::runtime_error("Error, model needs at least 1 input!");
     }
+
     const auto input0Batch = network->getInput(0)->getDimensions().d[0];
     for (int32_t i = 1; i < numInputs; ++i) {
         if (network->getInput(i)->getDimensions().d[0] != input0Batch) {
@@ -115,20 +125,23 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
         }
     }
 
-    // Check to see if the model supports dynamic batch size or not
-    if (input0Batch == -1) {
-        std::cout << "Model supports dynamic batch size" << std::endl;
-    } else if (input0Batch == 1) {
-        std::cout << "Model only supports fixed batch size of 1" << std::endl;
-        // If the model supports a fixed batch size, ensure that the maxBatchSize and optBatchSize were set correctly.
-        if (m_options.optBatchSize != input0Batch || m_options.maxBatchSize != input0Batch) {
-            throw std::runtime_error("Error, model only supports a fixed batch size of 1. Must set Options.optBatchSize and Options.maxBatchSize to 1");
-        }
-    } else {
-        throw std::runtime_error("Implementation currently only supports dynamic batch sizes or a fixed batch size of 1 (your batch size is fixed to "
-        + std::to_string(input0Batch) + ")");
+    // Ensure the imported ONNX model supports the max batch size specified or supports dynamic batching
+    if (m_options.maxBatchSize > input0Batch && input0Batch != -1) {
+        throw std::runtime_error("Error, imported ONNX model does not support max batch size of " +
+                                std::to_string(m_options.maxBatchSize) + ". The ONNX model only supports a max batch size of " +
+                                std::to_string(input0Batch) + ".");
     }
 
+    // Print the batch size information
+    if (input0Batch == -1) {
+        std::cout << "Imported ONNX model supports dynamic batch sizes" << std::endl;
+    } else if (input0Batch == 1) {
+        std::cout << "Imported ONNX model has a fixed batch size of 1" << std::endl;
+    } else {
+        std::cout << "Imported ONNX model has a fixed batch size of " << input0Batch << std::endl;
+    }
+
+    // Create a builder configuration
     auto config = std::unique_ptr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
     if (!config) {
         return false;
@@ -145,9 +158,12 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
         int32_t inputH = inputDims.d[2];
         int32_t inputW = inputDims.d[3];
 
-        // Specify the optimization profile`
-        optProfile->setDimensions(inputName, OptProfileSelector::kMIN, Dims4(1, inputC, inputH, inputW));
-        optProfile->setDimensions(inputName, OptProfileSelector::kOPT, Dims4(m_options.optBatchSize, inputC, inputH, inputW));
+        std::cout << "TensorRT input buffer " << i << " dimensions: " << inputC << ", " << inputH << ", " << inputW << std::endl;
+
+        // To set the dimensions for the optimization profile, we need to specify the min, opt, and max dimensions (for dynamic batching)
+        // TODO: Why does this only work if we set the dimensions for the input to the MAX value?
+        optProfile->setDimensions(inputName, OptProfileSelector::kMIN, Dims4(m_options.maxBatchSize, inputC, inputH, inputW));
+        optProfile->setDimensions(inputName, OptProfileSelector::kOPT, Dims4(m_options.maxBatchSize, inputC, inputH, inputW));
         optProfile->setDimensions(inputName, OptProfileSelector::kMAX, Dims4(m_options.maxBatchSize, inputC, inputH, inputW));
     }
     config->addOptimizationProfile(optProfile);
@@ -185,6 +201,7 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
                                                                 calibrationFileName, inputName, subVals, divVals, normalize);
         config->setInt8Calibrator(m_calibrator.get());
     }
+    std::cout << "Precision set to " << (m_options.precision == Precision::FP16 ? "FP16" : "INT8") << std::endl;
 
     // CUDA stream used for profiling by the builder.
     cudaStream_t profileStream;
@@ -194,8 +211,12 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
     // Build the engine
     // If this call fails, it is suggested to increase the logger verbosity to kVERBOSE and try rebuilding the engine.
     // Doing so will provide you with more information on why exactly it is failing.
+    std::cout << "Starting engine build..." << std::endl;
+
+    // TODO: why is this line causing the program to crash with exit code -6?
     std::unique_ptr<IHostMemory> plan{builder->buildSerializedNetwork(*network, *config)};
     if (!plan) {
+        std::cout << "Error, engine build failed!" << std::endl;
         return false;
     }
 
@@ -218,6 +239,13 @@ Engine::~Engine() {
     m_buffers.clear();
 }
 
+/**
+ * @brief Deserializes engine from disk, creates a TensorRT ExecutionContext, and allocates tensors
+ *      on the GPU for input and output buffers.
+ *
+ * @return true if the network is loaded successfully, false otherwise.
+ * @throws std::runtime_error if there is an error reading the engine file or setting the GPU device index.
+ */
 bool Engine::loadNetwork() {
     // Read the serialized model from disk
     std::ifstream file(m_engineName, std::ios::binary | std::ios::ate);
@@ -312,41 +340,51 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
         return false;
     }
 
+
+    // Check if the number of input buffers matches the number of input buffers
     const auto numInputs = m_inputDims.size();
-    if (inputs.size() != numInputs) {
+    // if (inputs.size() != numInputs) { // Unbatched version
+    // TODO: Does this only work for the batched version?
+    if (inputs[0].size() != numInputs) {
         std::cout << "===== Error =====" << std::endl;
         std::cout << "Incorrect number of inputs provided!" << std::endl;
+        std::cout << "Expected: " << numInputs << " inputs" << std::endl;
+        std::cout << "Got: " << inputs[0].size() << " inputs" << std::endl;
         return false;
     }
 
     // Ensure the batch size does not exceed the max
-    if (inputs[0].size() > static_cast<size_t>(m_options.maxBatchSize)) {
+    if (inputs.size() > static_cast<size_t>(m_options.maxBatchSize)) {
         std::cout << "===== Error =====" << std::endl;
         std::cout << "The batch size is larger than the model expects!" << std::endl;
         std::cout << "Model max batch size: " << m_options.maxBatchSize << std::endl;
-        std::cout << "Batch size provided to call to runInference: " << inputs[0].size() << std::endl;
+        std::cout << "Batch size provided to call to runInference: " << inputs.size() << std::endl;
         return false;
     }
 
-    const auto batchSize = static_cast<int32_t>(inputs[0].size());
-    // Make sure the same batch size was provided for all inputs
-    for (size_t i = 1; i < inputs.size(); ++i) {
-        if (inputs[i].size() != static_cast<size_t>(batchSize)) {
-            std::cout << "===== Error =====" << std::endl;
-            std::cout << "The batch size needs to be constant for all inputs!" << std::endl;
-            return false;
-        }
-    }
+    const auto batchSize = static_cast<int32_t>(inputs.size());
+
+    // TODO: This check does not work for the batched version
+    // // Make sure the same batch size was provided for all inputs
+    // for (size_t i = 1; i < inputs.size(); ++i) {
+    //     if (inputs[i].size() != static_cast<size_t>(batchSize)) {
+    //         std::cout << "===== Error =====" << std::endl;
+    //         std::cout << "The batch size needs to be constant for all inputs!" << std::endl;
+    //         return false;
+    //     }
+    // }
 
     // Create the cuda stream that will be used for inference
     cudaStream_t inferenceCudaStream;
     checkCudaErrorCode(cudaStreamCreate(&inferenceCudaStream));
 
-    // Preprocess all the inputs
+    // Preprocess all the inputs buffers
     for (size_t i = 0; i < numInputs; ++i) {
         const auto& batchInput = inputs[i];
         const auto& dims = m_inputDims[i];
 
+        // TODO why is this only batchedInput[0]?
+        // Check the dimentiomns of the image are the same size as the Engine dims
         auto &input = batchInput[0];
         if (input.channels() != dims.d[0] ||
             input.rows != dims.d[1] ||
@@ -354,7 +392,7 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
             std::cout << "===== Error =====" << std::endl;
             std::cout << "Input does not have correct size!" << std::endl;
             std::cout << "Expected: (" << dims.d[0] << ", " << dims.d[1] << ", "
-                      << dims.d[2] << ")" << std::endl;
+                    << dims.d[2] << ")" << std::endl;
             std::cout << "Got: (" << input.channels() << ", " << input.rows << ", " << input.cols << ")" << std::endl;
             std::cout << "Ensure you resize your input image to the correct size" << std::endl;
             return false;
@@ -368,12 +406,14 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
         // Even though TensorRT expects NCHW at IO, during optimization, it can internally use NHWC to optimize cuda kernels
         // See: https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html#data-layout
         // Copy over the input data and perform the preprocessing
-        auto mfloat = blobFromGpuMats(batchInput, m_subVals, m_divVals, m_normalize);
+        // Convert the batch of images into a single contiguous blob
+        cv::cuda::GpuMat mfloat = blobFromGpuMats(batchInput, m_subVals, m_divVals, m_normalize);
         auto *dataPointer = mfloat.ptr<void>();
 
+        // Copy the input blob tensor into the GPU input buffer
         checkCudaErrorCode(cudaMemcpyAsync(m_buffers[i], dataPointer,
-                                           mfloat.cols * mfloat.rows * mfloat.channels() * sizeof(float),
-                                           cudaMemcpyDeviceToDevice, inferenceCudaStream));
+                                        mfloat.cols * mfloat.rows * mfloat.channels() * sizeof(float),
+                                        cudaMemcpyDeviceToDevice, inferenceCudaStream));
     }
 
     // Ensure all dynamic bindings have been defined.
@@ -385,32 +425,39 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
     for (size_t i = 0; i < m_buffers.size(); ++i) {
         bool status = m_context->setTensorAddress(m_IOTensorNames[i].c_str(), m_buffers[i]);
         if (!status) {
+            std::cout << "===== Error =====" << std::endl;
+            std::cout << "Error setting tensor address for: " << m_IOTensorNames[i].c_str() << std::endl;
             return false;
         }
     }
 
     // Run inference.
+    std::cout << "Running enqueuV3..." << std::endl;
     bool status = m_context->enqueueV3(inferenceCudaStream);
     if (!status) {
+        std::cout << "===== Error =====" << std::endl;
+        std::cout << "Error calling enqueueV3!" << std::endl;
         return false;
     }
 
-    // Copy the outputs back to CPU
+    // TODO: is this batched version?
+    // Copy the outputs from GPU's output buffer back to CPU
     featureVectors.clear();
 
     for (int batch = 0; batch < batchSize; ++batch) {
         // Batch
         std::vector<std::vector<float>> batchOutputs{};
+        // Iterate through the output buffers (as defined by the bindings of the optimization profile(s))
+        // Start at index m_inputDims.size() to account for the inputs in our m_buffers
         for (int32_t outputBinding = numInputs; outputBinding < m_engine->getNbBindings(); ++outputBinding) {
-            // We start at index m_inputDims.size() to account for the inputs in our m_buffers
             std::vector<float> output;
             auto outputLenFloat = m_outputLengthsFloat[outputBinding - numInputs];
             output.resize(outputLenFloat);
-            // Copy the output
+            // Copy the output tensor from the GPU to the CPU
             checkCudaErrorCode(cudaMemcpyAsync(output.data(), static_cast<char*>(m_buffers[outputBinding]) + (batch * sizeof(float) * outputLenFloat), outputLenFloat * sizeof(float), cudaMemcpyDeviceToHost, inferenceCudaStream));
             batchOutputs.emplace_back(std::move(output));
         }
-        featureVectors.emplace_back(std::move(batchOutputs));
+            featureVectors.emplace_back(std::move(batchOutputs));
     }
 
     // Synchronize the cuda stream
@@ -419,6 +466,16 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
     return true;
 }
 
+
+/**
+ * Converts a batch of GPU mats (a batch of tensors) to a single GPU contiguous mat blob in GPU memory (one tensor).
+ *
+ * @param batchInput The vector of GPU mats representing the batch input.
+ * @param subVals The array of three float values used for mean subtraction.
+ * @param divVals The array of three float values used for scaling.
+ * @param normalize A boolean flag indicating whether to normalize the output.
+ * @return The GPU mat blob representing the converted batch.
+ */
 cv::cuda::GpuMat Engine::blobFromGpuMats(const std::vector<cv::cuda::GpuMat>& batchInput, const std::array<float, 3>& subVals, const std::array<float, 3>& divVals, bool normalize) {
     cv::cuda::GpuMat gpu_dst(1, batchInput[0].rows * batchInput[0].cols * batchInput.size(), CV_8UC3);
 
@@ -469,15 +526,15 @@ std::string Engine::serializeEngineOptions(const Options &options, const std::st
 
     // Serialize the specified options into the filename
     if (options.precision == Precision::FP16) {
-        engineName += ".fp16";
+        engineName += "fp16";
     } else if (options.precision == Precision::FP32){
-        engineName += ".fp32";
+        engineName += "fp32";
     } else {
-        engineName += ".int8";
+        engineName += "int8";
     }
 
-    engineName += "." + std::to_string(options.maxBatchSize);
-    engineName += "." + std::to_string(options.optBatchSize);
+    engineName += "maxBatchSize" + std::to_string(options.maxBatchSize);
+    engineName += "optimalBatchSize" + std::to_string(options.optBatchSize);
     engineName += ".engine";
 
     return engineName;
@@ -504,19 +561,32 @@ void Engine::getDeviceNames(std::vector<std::string>& deviceNames) {
     }
 }
 
+/**
+ * Resizes the input image while maintaining the aspect ratio and pads the right and bottom sides if necessary.
+ *
+ * @param input The input image to be resized.
+ * @param height The desired height of the output image.
+ * @param width The desired width of the output image.
+ * @param bgcolor The background color to be used for padding.
+ * @return The resized image with the specified dimensions and padding.
+ */
 cv::cuda::GpuMat Engine::resizeKeepAspectRatioPadRightBottom(const cv::cuda::GpuMat &input, size_t height, size_t width, const cv::Scalar &bgcolor) {
+    // Calculate a scaling factor to maintain the aspect ratio
     float r = std::min(width / (input.cols * 1.0), height / (input.rows * 1.0));
     int unpad_w = r * input.cols;
     int unpad_h = r * input.rows;
+    // Resize the image to the new dimensions
     cv::cuda::GpuMat re(unpad_h, unpad_w, CV_8UC3);
     cv::cuda::resize(input, re, re.size());
+    // Create a new image with the desired dimensions and fill it with the background color
     cv::cuda::GpuMat out(height, width, CV_8UC3, bgcolor);
+    // Copy the resized image to the top left corner of the new image with padding and background color
     re.copyTo(out(cv::Rect(0, 0, re.cols, re.rows)));
     return out;
 }
 
 /**
- * Moves input feature vector to the output vector to change 3D vector to 2D vector.
+ * Removes the batch dimention from the output of the model. Should only be used when the model has a batch size of 1.
  * 
  * @param input The input feature vector to be moved.
  * @param output The output vector to store the feature vector.
