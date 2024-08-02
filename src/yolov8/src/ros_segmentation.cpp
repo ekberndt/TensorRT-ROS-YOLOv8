@@ -24,13 +24,13 @@ class YoloV8Node : public rclcpp::Node
 
             // Create timer for camera synchronization
             float buffer_duration = 1 / buffer_hz;
-            buffer_timer_ = rclcpp::create_wall_timer(
-                std::chrono::duration<float>(buffer_duration),
-                std::bind(&YoloV8Node::batchBufferCallback, this),
-                nullptr,
-                this->get_node_base_interface().get(),
-                this->get_node_timers_interface().get()
-            );
+            // buffer_timer_ = rclcpp::create_wall_timer(
+            //     std::chrono::duration<float>(buffer_duration),
+            //     std::bind(&YoloV8Node::batchBufferCallback, this),
+            //     nullptr,
+            //     this->get_node_base_interface().get(),
+            //     this->get_node_timers_interface().get()
+            // );
 
             // Create subscribers and publishers for all cameras
             for (const std::string& topic : camera_topics) {
@@ -51,7 +51,7 @@ class YoloV8Node : public rclcpp::Node
                     "/yolov8" + topic + "/image", 10
                 );
                 one_channel_mask_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
-                    "/yolov8" + topic + "seg_mask_one_channel", 10
+                    "/yolov8" + topic + "/seg_mask_one_channel", 10
                 );
             }
         }
@@ -67,11 +67,12 @@ class YoloV8Node : public rclcpp::Node
         */
         void addToBufferCallback(const sensor_msgs::msg::Image::SharedPtr &image_msg, const std::string topic) {
             // TODO: Will this be deleted in memory since it is passed?
-            std::lock_guard<std::mutex> guard(buffer_mutex_);
+            std::unique_lock<std::mutex> lock(buffer_mutex_);
             current_buffer_[topic] = image_msg;
 
             // Check if ready for batching
-            if (current_buffer_.size() == topic.size()) {
+            if (current_buffer_.size() == camera_topics_.size()) {
+                lock.unlock();
                 batchBufferCallback();
             }
         }
@@ -79,27 +80,35 @@ class YoloV8Node : public rclcpp::Node
         void batchBufferCallback() {
             // Swap the current buffer with the processing buffer
             std::unique_lock<std::mutex> lock(buffer_mutex_);
-            lock.lock();
             std::swap(current_buffer_, processing_buffer_);
             // Clear the current buffer
             current_buffer_.clear();
             lock.unlock();
 
             // Reset buffer timer
-            buffer_timer_->reset();
+            // buffer_timer_->reset();
 
             // Check if all the camera topics are in the processing buffer
-            checkCameraTopicsInBuffer();
+            int num_topics = checkCameraTopicsInBuffer();
+            if (num_topics == 0) {
+                return;
+            }
 
             // Preprocess the input
-            // TODO: where are these images coming from????
             std::vector<cv::Mat> images;
             preprocess_callback(images);
 
             // TODO: batch to network properly
             // Run inference
             std::vector<std::vector<Object>> objects = yoloV8_.detectObjects(images);
-            RCLCPP_INFO(this->get_logger(), "Detected %zu objects", objects.size());
+
+            RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
+            // Sum across all batches to get total number of objects detected
+            size_t total_objects = 0;
+            for (const auto& batch : objects) {
+                total_objects += batch.size();
+            }
+            RCLCPP_INFO(this->get_logger(), "Detected %zu objects across all cameras", total_objects);
             // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
             // RCLCPP_INFO(this->get_logger(), "Mask Shape: %s", objects[0].boxMask.size());
 
@@ -108,13 +117,15 @@ class YoloV8Node : public rclcpp::Node
         }
 
         /*
-        * Check if all camera topics are in the processing buffer and print out any missing topics
+        * Count number of camera topics are in the processing buffer and print out any missing topics
+        *
+        * @return num_topics: The number of camera topics in the processing buffer
         */
-        void checkCameraTopicsInBuffer() {
-            if (processing_buffer_.size() != camera_topics_.size()) {
+        int checkCameraTopicsInBuffer() {
+            if (processing_buffer_.size() == camera_topics_.size()) {
+                RCLCPP_WARN(this->get_logger(), "All camera topics are in the processing buffer");
+            } else if (processing_buffer_.size() == 0) {
                 RCLCPP_WARN(this->get_logger(), "No camera topics are in the processing buffer");
-                return;
-            // Print out camera topics missing from the processing buffer
             } else {
                 for (const std::string& topic : camera_topics_) {
                     if (processing_buffer_.find(topic) == processing_buffer_.end()) {
@@ -122,6 +133,7 @@ class YoloV8Node : public rclcpp::Node
                     }
                 }
             }
+            return processing_buffer_.size();
         }
 
         /*
@@ -157,7 +169,7 @@ class YoloV8Node : public rclcpp::Node
         /*
         * Convert output(s) from Neural Network to ROS messages and publish them
         *
-        * @param objects: Detected objects in each image from the neural network
+        * @param objects: Batch of detected objects from the neural network
         * @param images: The images that the objects were detected in
         */
         void postprocess_callback(std::vector<std::vector<Object>> objects, std::vector<cv::Mat> images) {
@@ -331,7 +343,7 @@ class YoloV8Node : public rclcpp::Node
         std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr> detection_publishers_;
         std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
         std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> one_channel_mask_publishers_;
-        rclcpp::TimerBase::SharedPtr buffer_timer_;
+        // rclcpp::TimerBase::SharedPtr buffer_timer_;
         std::unordered_map<std::string, sensor_msgs::msg::Image::SharedPtr> current_buffer_;
         std::unordered_map<std::string, sensor_msgs::msg::Image::SharedPtr> processing_buffer_;
         std::mutex buffer_mutex_;
@@ -357,14 +369,14 @@ int main(int argc, char *argv[]) {
     // Create the YoloV8 engine
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Creating YoloV8 engine --- Could take a while if Engine file is not already built and cached.");
     YoloV8 yoloV8(onnxModelPath, config);
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "YoloV8 engine created and initialized.");
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "YoloV8 engine created and loaded into memory.");
 
     // Create ROS2 Node
     // TODO: Don't hard code params and instead use ROS params
     std::vector<std::string> camera_topics = {
-        "/vimba_front",
+        // "/vimba_front",
         "/vimba_front_left_center",
-        "/vimba_front_right_center",
+        // "/vimba_front_right_center",
         "/vimba_left",
         "/vimba_right",
         "/vimba_rear"
