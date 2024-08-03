@@ -253,7 +253,7 @@ class YoloV8Node : public rclcpp::Node
             cv::Mat oneChannelMask;
             int img_width = image_msg->width;
             int img_height = image_msg->height;
-            yoloV8_.getOneChannelSegmentationMask(objects, oneChannelMask, img_width, img_height);
+            yoloV8_.getOneChannelSegmentationMask(objects, oneChannelMask, img_height, img_width);
             // Use ROS cv_bridge to convert cv::Mat to sensor_msgs::msg::Image and take header from original camera image
             try {
                 cv_bridge::CvImage cvBridgeOneChannelMask = cv_bridge::CvImage(
