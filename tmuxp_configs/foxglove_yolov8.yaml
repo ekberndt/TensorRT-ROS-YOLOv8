@@ -7,8 +7,8 @@ windows:
     panes:
       - shell_command:
           - source /opt/ros/iron/setup.bash
-          - colcon build --packages-select yolov8 yolov8_interfaces
           - source install/setup.bash
+          - sleep 5
           - ros2 launch yolov8 yolov8.launch.py
       - shell_command:
           - source /opt/ros/iron/setup.bash
@@ -22,6 +22,6 @@ windows:
           - source /opt/ros/iron/setup.bash
           - source install/setup.bash
           # Uncomment the line below to enable ros2 topic echo
-          # Sleep for 25 seconds to allow the other nodes to start
-          - sleep 25
+          # Sleep for 5 seconds to allow the other nodes to start
+          - sleep 5
           - ros2 topic echo /yolov8/vimba_front_right_center/detections

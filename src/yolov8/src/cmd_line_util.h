@@ -203,9 +203,15 @@ inline std::string parseArguments(int argc, char* argv[], YoloV8Config& config, 
                 config.classNames = values;
             }
 
-            // TODO: Remove throwing away of --ros-args
             else if (flag == "ros-args") {
-                std::cout << "Throwing away --ros-args" << std::endl;
+                // ROS2 args will be parsed separately by ROS2
+                continue;
+            }
+
+            else if (flag == "params-file") {
+                // Params file will be parsed separately by ROS2
+                i++; // Skip the next argument (params file path)
+                continue;
             }
 
             else {

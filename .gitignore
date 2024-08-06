@@ -229,3 +229,7 @@ cython_debug/
 *.onnx
 *.pt
 *.pth
+
+# Enironment Files
+# ========================
+*.env

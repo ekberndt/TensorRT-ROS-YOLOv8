@@ -17,13 +17,23 @@ using std::placeholders::_1;
 class YoloV8Node : public rclcpp::Node
 {
     public:
-        YoloV8Node(YoloV8& yoloV8, const std::vector<std::string>& camera_topics, float buffer_hz)
+        YoloV8Node(YoloV8& yoloV8)
         : Node("yolo_v8"), yoloV8_(yoloV8)
         {
-            camera_topics_ = camera_topics;
+            // Get ROS parameters
+            this->declare_parameter("camera_topics", camera_topics_);
+            this->get_parameter("camera_topics", camera_topics_);
+            this->declare_parameter("camera_buffer_hz", camera_buffer_hz_);
+            this->get_parameter("camera_buffer_hz", camera_buffer_hz_);
+            this->declare_parameter("visualize_masks", visualize_masks_);
+            this->get_parameter("visualize_masks", visualize_masks_);
+            this->declare_parameter("enable_one_channel_mask", enable_one_channel_mask_);
+            this->get_parameter("enable_one_channel_mask", enable_one_channel_mask_);
+            this->declare_parameter("visualize_one_channel_mask", visualize_one_channel_mask_);
+            this->get_parameter("visualize_one_channel_mask", visualize_one_channel_mask_);
 
             // Create timer for camera synchronization
-            float buffer_duration = 1 / buffer_hz;
+            float buffer_duration = 1 / camera_buffer_hz_;
             // buffer_timer_ = rclcpp::create_wall_timer(
             //     std::chrono::duration<float>(buffer_duration),
             //     std::bind(&YoloV8Node::batchBufferCallback, this),
@@ -32,8 +42,14 @@ class YoloV8Node : public rclcpp::Node
             //     this->get_node_timers_interface().get()
             // );
 
+            // Print Camera Topics
+            RCLCPP_INFO(this->get_logger(), "Camera Topics:");
+            for (const std::string& topic : camera_topics_) {
+                RCLCPP_INFO(this->get_logger(), "  %s", topic.c_str());
+            }
+
             // Create subscribers and publishers for all cameras
-            for (const std::string& topic : camera_topics) {
+            for (const std::string& topic : camera_topics_) {
                 rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
                     topic + "/image", 10,
                     [this, topic](const sensor_msgs::msg::Image::SharedPtr msg)
@@ -42,7 +58,6 @@ class YoloV8Node : public rclcpp::Node
                     }
                 );
                 
-
                 subscriptions_.push_back(subscription_);
                 detection_publishers_[topic] = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>(
                     "/yolov8" + topic + "/detections", 10
@@ -67,6 +82,7 @@ class YoloV8Node : public rclcpp::Node
         */
         void addToBufferCallback(const sensor_msgs::msg::Image::SharedPtr &image_msg, const std::string topic) {
             // TODO: Will this be deleted in memory since it is passed?
+            RCLCPP_INFO(this->get_logger(), "Received image message on topic %s", topic.c_str());
             std::unique_lock<std::mutex> lock(buffer_mutex_);
             current_buffer_[topic] = image_msg;
 
@@ -102,7 +118,8 @@ class YoloV8Node : public rclcpp::Node
             // Run inference
             std::vector<std::vector<Object>> objects = yoloV8_.detectObjects(images);
 
-            RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
+            // RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
+            std::cout << "Inference ran on " << images.size() << " cameras" << std::endl;
             // Sum across all batches to get total number of objects detected
             size_t total_objects = 0;
             for (const auto& batch : objects) {
@@ -123,13 +140,13 @@ class YoloV8Node : public rclcpp::Node
         */
         int checkCameraTopicsInBuffer() {
             if (processing_buffer_.size() == camera_topics_.size()) {
-                RCLCPP_WARN(this->get_logger(), "All camera topics are in the processing buffer");
+                std::cout << "All camera topics are in the processing buffer" << std::endl;
             } else if (processing_buffer_.size() == 0) {
-                RCLCPP_WARN(this->get_logger(), "No camera topics are in the processing buffer");
+                std::cout << "No camera topics are in the processing buffer" << std::endl;
             } else {
                 for (const std::string& topic : camera_topics_) {
                     if (processing_buffer_.find(topic) == processing_buffer_.end()) {
-                        RCLCPP_WARN(this->get_logger(), "Camera topic %s is missing from the processing buffer", topic.c_str());
+                        std::cout << "Camera topic " << topic << " is missing from the processing buffer" << std::endl;
                     }
                 }
             }
@@ -174,9 +191,6 @@ class YoloV8Node : public rclcpp::Node
         */
         void postprocess_callback(std::vector<std::vector<Object>> objects, std::vector<cv::Mat> images) {
             // TODO: Make these flags ROS parameters
-            bool visualize_masks = true;
-            bool enable_one_channel_mask = true;
-            bool visualize_one_channel_mask = true;
 
             int i = 0;
             for (const auto& pair : processing_buffer_) {
@@ -187,15 +201,15 @@ class YoloV8Node : public rclcpp::Node
                 yolov8_interfaces::msg::Yolov8Detections detectionMsg;
                 detectionMsg.header = image_msg->header;
 
-                if (enable_one_channel_mask) {
+                if (enable_one_channel_mask_) {
                     // TODO fix how batched objects are handled
-                    publishOneChannelMask(objects[i], visualize_one_channel_mask, image_msg, detectionMsg,
+                    publishOneChannelMask(objects[i], visualize_one_channel_mask_, image_msg, detectionMsg,
                         topic);
                 }
 
                 // Draw the segmentation masks and bounding boxes on the image
                 // to visualize the detections
-                if (visualize_masks) {
+                if (visualize_masks_) {
                     // TODO fix how batched objects are handled
                     visualizeMask(objects[i], image, topic, image_msg);
                 }
@@ -340,6 +354,10 @@ class YoloV8Node : public rclcpp::Node
         }
 
         std::vector<std::string> camera_topics_;
+        float camera_buffer_hz_ = 30;
+        bool visualize_masks_;
+        bool enable_one_channel_mask_;
+        bool visualize_one_channel_mask_;
         std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr> detection_publishers_;
         std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
         std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> one_channel_mask_publishers_;
@@ -349,9 +367,6 @@ class YoloV8Node : public rclcpp::Node
         std::mutex buffer_mutex_;
 
         std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> subscriptions_;
-        // std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr> detection_publisher_;
-        // rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
-        // rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr oneChannelMask_publisher_;
         YoloV8& yoloV8_;
         };
 
@@ -359,11 +374,9 @@ int main(int argc, char *argv[]) {
     YoloV8Config config;
     std::string onnxModelPath;
 
-    // Parse the command line arguments
-    // TODO: Change this to use ROS parameters
     std::string parseArgsError = parseArguments(argc, argv, config, onnxModelPath);
     if (!parseArgsError.empty()) {
-        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "%s", parseArgsError.c_str());
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Failed to parse YOLOv8 args: %s", parseArgsError.c_str());
         return -1;
     }
     // Create the YoloV8 engine
@@ -372,19 +385,8 @@ int main(int argc, char *argv[]) {
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "YoloV8 engine created and loaded into memory.");
 
     // Create ROS2 Node
-    // TODO: Don't hard code params and instead use ROS params
-    std::vector<std::string> camera_topics = {
-        // "/vimba_front",
-        "/vimba_front_left_center",
-        // "/vimba_front_right_center",
-        "/vimba_left",
-        "/vimba_right",
-        "/vimba_rear"
-    };
-    float buffer_hz = 30;
-
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<YoloV8Node>(yoloV8, camera_topics, buffer_hz));
+    rclcpp::spin(std::make_shared<YoloV8Node>(yoloV8));
     rclcpp::shutdown();
     return 0;
 }
