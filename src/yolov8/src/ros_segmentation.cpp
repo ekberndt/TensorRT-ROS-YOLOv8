@@ -34,18 +34,24 @@ class YoloV8Node : public rclcpp::Node
 
             // Create timer for camera synchronization
             float buffer_duration = 1 / camera_buffer_hz_;
-            // buffer_timer_ = rclcpp::create_wall_timer(
-            //     std::chrono::duration<float>(buffer_duration),
-            //     std::bind(&YoloV8Node::batchBufferCallback, this),
-            //     nullptr,
-            //     this->get_node_base_interface().get(),
-            //     this->get_node_timers_interface().get()
-            // );
+            buffer_timer_ = rclcpp::create_wall_timer(
+                std::chrono::duration<float>(buffer_duration),
+                std::bind(&YoloV8Node::batchBufferCallback, this),
+                nullptr,
+                this->get_node_base_interface().get(),
+                this->get_node_timers_interface().get()
+            );
 
             // Print Camera Topics
             RCLCPP_INFO(this->get_logger(), "Camera Topics:");
             for (const std::string& topic : camera_topics_) {
                 RCLCPP_INFO(this->get_logger(), "  %s", topic.c_str());
+            }
+
+            // Check if model batch size matches the number of camera topics
+            if (camera_topics_.size() != yoloV8_.getBatchSize()) {
+                throw std::runtime_error("Model batch size (" + std::to_string(yoloV8_.getBatchSize()) +
+                    ") does not match the number of camera topics (" + std::to_string(camera_topics_.size()) + ")");
             }
 
             // Create subscribers and publishers for all cameras
@@ -82,7 +88,7 @@ class YoloV8Node : public rclcpp::Node
         */
         void addToBufferCallback(const sensor_msgs::msg::Image::SharedPtr &image_msg, const std::string topic) {
             // TODO: Will this be deleted in memory since it is passed?
-            RCLCPP_INFO(this->get_logger(), "Received image message on topic %s", topic.c_str());
+            std::cout << "Received image message on topic " << topic << std::endl;
             std::unique_lock<std::mutex> lock(buffer_mutex_);
             current_buffer_[topic] = image_msg;
 
@@ -102,17 +108,30 @@ class YoloV8Node : public rclcpp::Node
             lock.unlock();
 
             // Reset buffer timer
-            // buffer_timer_->reset();
+            buffer_timer_->reset();
+
+            std::map<std::string, cv::Mat> images_map;
 
             // Check if all the camera topics are in the processing buffer
-            int num_topics = checkCameraTopicsInBuffer();
-            if (num_topics == 0) {
+            std::vector<std::string> missing_topics = checkCameraTopicsInBuffer();
+            if (missing_topics.size() == camera_topics_.size()) {
+                RCLCPP_WARN(this->get_logger(), "No camera topics in the processing buffer");
                 return;
+            } else {
+                // Add black images for missing topics
+                for (const std::string& topic : missing_topics) {
+                    images_map[topic] = cv::Mat::zeros(cv::Size(640, 640), CV_8UC3);
+                }
             }
 
             // Preprocess the input
+            preprocess_callback(images_map);
+
+            // Place map values into a vector
             std::vector<cv::Mat> images;
-            preprocess_callback(images);
+            for (const auto& pair : images_map) {
+                images.push_back(pair.second);
+            }
 
             // TODO: batch to network properly
             // Run inference
@@ -120,48 +139,59 @@ class YoloV8Node : public rclcpp::Node
 
             // RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
             std::cout << "Inference ran on " << images.size() << " cameras" << std::endl;
-            // Sum across all batches to get total number of objects detected
-            size_t total_objects = 0;
+            // Print out a summary of the detected objects on each camera
+            RCLCPP_INFO(this->get_logger(), "========================================");
+            int i = 0;
             for (const auto& batch : objects) {
-                total_objects += batch.size();
+                std::string topic = camera_topics_[i++];
+                if (!batch.empty()) {
+                    RCLCPP_INFO(this->get_logger(), "Detected %zu object(s) on %s", batch.size(), topic.c_str());
+                    for (const auto& object : batch) {
+                        RCLCPP_INFO(this->get_logger(), "\tDetected : %s, Prob: %f", yoloV8_.getClassName(object.label).c_str(), object.probability);
+                    }
+                }
             }
-            RCLCPP_INFO(this->get_logger(), "Detected %zu objects across all cameras", total_objects);
+            // RCLCPP_INFO(this->get_logger(), "Detected %zu objects across all cameras", total_objects);
             // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
             // RCLCPP_INFO(this->get_logger(), "Mask Shape: %s", objects[0].boxMask.size());
 
             // Postprocess the output and publish the results
-            postprocess_callback(objects, images);
+            postprocess_callback(images_map, objects, images, missing_topics);
         }
 
         /*
-        * Count number of camera topics are in the processing buffer and print out any missing topics
+        * Check number of camera topics in the processing buffer and return any missing topics
         *
-        * @return num_topics: The number of camera topics in the processing buffer
+        * @return a vector of missing camera topics
         */
-        int checkCameraTopicsInBuffer() {
+        std::vector<std::string> checkCameraTopicsInBuffer() {
+            std::vector<std::string> missing_topics;
             if (processing_buffer_.size() == camera_topics_.size()) {
                 std::cout << "All camera topics are in the processing buffer" << std::endl;
-            } else if (processing_buffer_.size() == 0) {
-                std::cout << "No camera topics are in the processing buffer" << std::endl;
             } else {
+                if (processing_buffer_.size() == 0) {
+                    std::cout << "No camera topics are in the processing buffer" << std::endl;
+                }
                 for (const std::string& topic : camera_topics_) {
                     if (processing_buffer_.find(topic) == processing_buffer_.end()) {
                         std::cout << "Camera topic " << topic << " is missing from the processing buffer" << std::endl;
+                        missing_topics.push_back(topic);
                     }
                 }
             }
-            return processing_buffer_.size();
+
+            return missing_topics;
         }
 
         /*
         * Preprocess input(s) for Neural Network by converting ROS image(s) to OpenCV image(s)
         * and converting from RGB8 to BGR8
         *
-        * @param images: the vector to store the preprocessed images
+        * @param images: the map to store the preprocessed images
         */
-        void preprocess_callback(std::vector<cv::Mat>& images) {
+        void preprocess_callback(std::map<std::string, cv::Mat>& images) {
             for (const auto& pair : processing_buffer_) {
-                std::string topic = pair.first;
+                std::string camera_topic = pair.first;
                 const sensor_msgs::msg::Image::SharedPtr image_msg = pair.second;
                 try
                     {
@@ -174,10 +204,10 @@ class YoloV8Node : public rclcpp::Node
                         cv::Mat img = cv_ptr->image;
                         cv::cvtColor(img, img, cv::COLOR_RGB2BGR);
 
-                        images.push_back(img);
+                        images[camera_topic] = img;
                     } catch (cv_bridge::Exception& e) {
                         RCLCPP_ERROR(this->get_logger(), "Failed to convert ROS image message on topic %s \
-                            due to cv_bridge error: %s", topic.c_str(), e.what());
+                            due to cv_bridge error: %s", camera_topic.c_str(), e.what());
                         continue;
                     }
             }
@@ -188,14 +218,22 @@ class YoloV8Node : public rclcpp::Node
         *
         * @param objects: Batch of detected objects from the neural network
         * @param images: The images that the objects were detected in
+        * @param missing_topics: The camera topics that were missing from the processing buffer
         */
-        void postprocess_callback(std::vector<std::vector<Object>> objects, std::vector<cv::Mat> images) {
-            // TODO: Make these flags ROS parameters
+        void postprocess_callback(std::map<std::string, cv::Mat> images_map, std::vector<std::vector<Object>> objects,
+                std::vector<cv::Mat> images, std::vector<std::string> missing_topics) {
 
             int i = 0;
-            for (const auto& pair : processing_buffer_) {
+            for (const auto& pair : images_map) {
                 const std::string topic = pair.first;
-                const sensor_msgs::msg::Image::SharedPtr image_msg = pair.second;
+                // Skip any missing camera topics since they will have a black image
+                if (std::find(missing_topics.begin(), missing_topics.end(), topic) != missing_topics.end()) {
+                    i++;
+                    std::cout << "Skipping missing topic " << topic << std::endl;
+                    continue;
+                }
+
+                const sensor_msgs::msg::Image::SharedPtr image_msg = processing_buffer_[topic];
                 cv::Mat image = images[i];
                 // ROS message to publish the detections
                 yolov8_interfaces::msg::Yolov8Detections detectionMsg;
@@ -358,12 +396,12 @@ class YoloV8Node : public rclcpp::Node
         bool visualize_masks_;
         bool enable_one_channel_mask_;
         bool visualize_one_channel_mask_;
-        std::unordered_map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr> detection_publishers_;
-        std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
-        std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> one_channel_mask_publishers_;
-        // rclcpp::TimerBase::SharedPtr buffer_timer_;
-        std::unordered_map<std::string, sensor_msgs::msg::Image::SharedPtr> current_buffer_;
-        std::unordered_map<std::string, sensor_msgs::msg::Image::SharedPtr> processing_buffer_;
+        std::map<std::string, rclcpp::Publisher<yolov8_interfaces::msg::Yolov8Detections>::SharedPtr> detection_publishers_;
+        std::map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
+        std::map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> one_channel_mask_publishers_;
+        rclcpp::TimerBase::SharedPtr buffer_timer_;
+        std::map<std::string, sensor_msgs::msg::Image::SharedPtr> current_buffer_;
+        std::map<std::string, sensor_msgs::msg::Image::SharedPtr> processing_buffer_;
         std::mutex buffer_mutex_;
 
         std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> subscriptions_;

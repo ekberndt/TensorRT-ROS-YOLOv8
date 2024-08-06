@@ -79,6 +79,9 @@ public:
 
     // Getter for CLASS_NAMES
     std::string getClassName(int i) const { return CLASS_NAMES[i].c_str(); }
+
+    // Getter for batch size
+    int getBatchSize() const { return m_trtEngine->getBatchSize(); }
 private:
     // Preprocess the input
     std::vector<std::vector<cv::cuda::GpuMat>> preprocess(const cv::cuda::GpuMat& gpuImg);

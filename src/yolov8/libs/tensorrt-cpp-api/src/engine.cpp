@@ -60,6 +60,7 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
 
     // Only regenerate the engine file if it has not already been generated for the specified options
     m_engineName = serializeEngineOptions(m_options, onnxModelPath);
+    batch_size_ = m_options.maxBatchSize;
     std::cout << "Searching for engine file with name: " << m_engineName << std::endl;
 
     if (doesFileExist(m_engineName)) {
