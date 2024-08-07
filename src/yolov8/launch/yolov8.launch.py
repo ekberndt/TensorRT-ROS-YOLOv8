@@ -14,8 +14,12 @@ def generate_launch_description():
     models_dir = os.path.join(get_package_share_directory('yolov8'), 'models')
     # Specify the specific model to use here
     # Get parameters from environment variables specifed in .env file
-    env = Env()
+    # Check if .env file exists
+    if not os.path.exists("yolov8.env"):
+        raise FileNotFoundError("Please create a yolov8.env file in the root of the yolov8 workspace.")
+
     # TODO: Put yolov8.env in package share dir?
+    env = Env()
     env.read_env("yolov8.env")
 
     onnx_model_path = env("ONNX_MODEL")
@@ -26,6 +30,7 @@ def generate_launch_description():
     visualize_masks = env.bool("VISUALIZE_MASKS")
     enable_one_channel_mask = env.bool("ENABLE_ONE_CHANNEL_MASK")
     visualize_one_channel_mask = env.bool("VISUALIZE_ONE_CHANNEL_MASK")
+    nice_level = env.int("NICE_LEVEL")
 
     # Print all environment variables read in above
     # for key, value in env.items():
@@ -54,5 +59,6 @@ def generate_launch_description():
             arguments=[
                 '--model', model_dir
             ],
+            prefix=['nice -n ' + str(nice_level)]
         )
     ])
