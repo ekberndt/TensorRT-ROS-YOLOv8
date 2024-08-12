@@ -27,6 +27,36 @@ help:
 	@echo "See Makefile for more information on each target."
 
 # -----------------------------------------------------------------------------
+# Target: clean
+# Description: Removes the build/, install/, and log/ directories.
+# Parameters: None
+# Usage: make clean
+# -----------------------------------------------------------------------------
+.PHONY: clean
+clean:
+	rm -rf build/ install/ log/
+
+# -----------------------------------------------------------------------------
+# Target: build
+# Description: Builds the project with colcon.
+# Parameters: None
+# Usage: make build
+# -----------------------------------------------------------------------------
+.PHONY: build
+build:
+	colcon build
+
+# -----------------------------------------------------------------------------
+# Target: build-debug
+# Description: Builds the project with colcon in debug mode.
+# Parameters: None
+# Usage: make build-debug
+# -----------------------------------------------------------------------------
+.PHONY: build-debug
+build-debug:
+	colcon build --cmake-args -DCMAKE_BUILD_TYPE=Debug
+
+# -----------------------------------------------------------------------------
 # Target: install-opencv-cuda
 # Description: Builds and installs OpenCV with CUDA support system-wide using
 # 	yolov8's OpenCV install script. This requires the yolov8 repo to have
