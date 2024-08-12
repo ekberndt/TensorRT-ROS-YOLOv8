@@ -140,7 +140,7 @@ class YoloV8Node : public rclcpp::Node
             // RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
             std::cout << "Inference ran on " << images.size() << " cameras" << std::endl;
             // Print out a summary of the detected objects on each camera
-            RCLCPP_INFO(this->get_logger(), "========================================");
+            RCLCPP_INFO(this->get_logger(), "==========Detection Summary==========");
             int i = 0;
             for (const auto& batch : objects) {
                 std::string topic = camera_topics_[i++];
@@ -339,7 +339,7 @@ class YoloV8Node : public rclcpp::Node
         * @param detectionMsg: The yolov8detections message to add the objects to
         */
         void addObjectsToDetectionMsg(std::vector<Object> objects,
-                yolov8_interfaces::msg::Yolov8Detections detectionMsg) const {
+                yolov8_interfaces::msg::Yolov8Detections& detectionMsg) const {
             // Convert detected objects to ROS message
             // Start at index 1 because index 0 is the background class
             int index = 1;
