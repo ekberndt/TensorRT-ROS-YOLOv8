@@ -33,16 +33,40 @@ def generate_launch_description():
     enable_one_channel_mask = env.bool("ENABLE_ONE_CHANNEL_MASK")
     visualize_one_channel_mask = env.bool("VISUALIZE_ONE_CHANNEL_MASK")
     nice_level = env.int("NICE_LEVEL")
+    precision = env("PRECISION")
+    calibration_data_directory = env("CALIBRATION_DATA_DIRECTORY")
+    probability_threshold = env.float("PROBABILITY_THRESHOLD")
+    nms_threshold = env.float("NMS_THRESHOLD")
+    top_k = env.int("TOP_K")
+    seg_channels = env.int("SEG_CHANNELS")
+    seg_h = env.int("SEG_H")
+    seg_w = env.int("SEG_W")
+    segmentation_threshold = env.float("SEGMENTATION_THRESHOLD")
+    # class_names = env("CLASS_NAMES").split(",")
 
-    # Print all environment variables read in above
-    # for key, value in env.items():
-    #     print(f"{key}: {value}")
+    print("YOLOv8 Parameters:")
+    print(f"onnx_model_path: {onnx_model_path}")
     print(f"model_dir: {model_dir}")
     print(f"camera_topics: {camera_topics}")
     print(f"camera_buffer_hz: {camera_buffer_hz}")
     print(f"visualize_masks: {visualize_masks}")
     print(f"enable_one_channel_mask: {enable_one_channel_mask}")
     print(f"visualize_one_channel_mask: {visualize_one_channel_mask}")
+    print(f"nice_level: {nice_level}")
+    print(f"precision: {precision}")
+    print(f"calibration_data_directory: {calibration_data_directory}")
+    print(f"probability_threshold: {probability_threshold}")
+    print(f"nms_threshold: {nms_threshold}")
+    print(f"top_k: {top_k}")
+    print(f"seg_channels: {seg_channels}")
+    print(f"seg_h: {seg_h}")
+    print(f"seg_w: {seg_w}")
+    print(f"segmentation_threshold: {segmentation_threshold}")
+    # print(f"class_names: {class_names}")
+
+    # Convert the list of class names into several strings separated by "" to be read as a command
+    # line argument
+    # class_names = ' '.join([f'"{class_name}"' for class_name in class_names])
 
     # TODO Pull parameters out of ros_segmentation and place them here
     print(model_dir)
@@ -59,7 +83,17 @@ def generate_launch_description():
                 'visualize_one_channel_mask': visualize_one_channel_mask,
             }],
             arguments=[
-                '--model', model_dir
+                '--model', model_dir,
+                '--precision', precision,
+                '--calibration-data', calibration_data_directory,
+                '--prob-threshold', str(probability_threshold),
+                '--nms-threshold', str(nms_threshold),
+                '--top-k', str(top_k),
+                '--seg-channels', str(seg_channels),
+                '--seg-h', str(seg_h),
+                '--seg-w', str(seg_w),
+                '--seg-threshold', str(segmentation_threshold),
+                # '--class-names', class_names
             ],
             prefix=['nice -n ' + str(nice_level)]
         )
