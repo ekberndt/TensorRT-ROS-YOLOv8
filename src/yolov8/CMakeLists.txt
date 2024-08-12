@@ -83,6 +83,11 @@ install(DIRECTORY
   PATTERN ".gitignore" EXCLUDE # Exclude .gitignore files from being installed
 )
 
+install(FILES
+  ../../yolov8.env
+  DESTINATION share/${PROJECT_NAME}
+)
+
 # Allows other packages to find and link to the YoloV8_TRT and tensorrt_cpp_api libraries
 ament_export_include_directories(include)
 ament_export_libraries(YOLOV8_TRT tensorrt_cpp_api yolov8_interfaces)

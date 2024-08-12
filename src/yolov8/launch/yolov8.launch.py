@@ -11,16 +11,18 @@ def generate_launch_description():
     Returns:
         LaunchDescription: The launch description object.
     """
-    models_dir = os.path.join(get_package_share_directory('yolov8'), 'models')
-    # Specify the specific model to use here
+    package_share_dir = get_package_share_directory('yolov8')
+    models_dir = os.path.join(package_share_dir, 'models')
+    env_file_path = os.path.join(package_share_dir, 'yolov8.env')
     # Get parameters from environment variables specifed in .env file
     # Check if .env file exists
-    if not os.path.exists("yolov8.env"):
-        raise FileNotFoundError("Please create a yolov8.env file in the root of the yolov8 workspace.")
+    if not os.path.exists(env_file_path):
+        raise FileNotFoundError("Please create a yolov8.env file in the root of the yolov8 \
+                                workspace and rebuild the package so it can be installed in the \
+                                package's share directory.")
 
-    # TODO: Put yolov8.env in package share dir?
     env = Env()
-    env.read_env("yolov8.env")
+    env.read_env(env_file_path)
 
     onnx_model_path = env("ONNX_MODEL")
     model_dir = os.path.join(models_dir, onnx_model_path)
