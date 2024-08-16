@@ -50,7 +50,12 @@ struct YoloV8Config {
     // class. Match sure the number of colors matches the number of classes.
     std::vector<std::string> classNames = {
         "car",
-        "drivable-area",
+        "misc0",
+        "misc1",
+        "misc2",
+        "misc3",
+        "misc4",
+        "misc5",
     };
 };
 
@@ -76,6 +81,9 @@ public:
     // Draw the object bounding boxes and labels on the image and store a binary mask in the given
     // masks vector for each instance segmentation object.
     void drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects, std::vector<cv::Mat> &masks, unsigned int scale = 2);
+
+    // Getter for number of classes
+    int getNumClasses() const { return CLASS_NAMES.size(); }
 
     // Getter for CLASS_NAMES
     std::string getClassName(int i) const { return CLASS_NAMES[i].c_str(); }

@@ -138,18 +138,19 @@ class YoloV8Node : public rclcpp::Node
             std::vector<std::vector<Object>> objects = yoloV8_.detectObjects(images);
 
             // RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
-            std::cout << "Inference ran on " << images.size() << " cameras" << std::endl;
             // Print out a summary of the detected objects on each camera
-            RCLCPP_INFO(this->get_logger(), "==========Detection Summary==========");
+            RCLCPP_INFO(this->get_logger(), "========== Detection Summary ==========");
             int i = 0;
             for (const auto& batch : objects) {
-                std::string topic = camera_topics_[i++];
+                std::string topic = camera_topics_[i];
                 if (!batch.empty()) {
                     RCLCPP_INFO(this->get_logger(), "Detected %zu object(s) on %s", batch.size(), topic.c_str());
                     for (const auto& object : batch) {
-                        RCLCPP_INFO(this->get_logger(), "\tDetected : %s, Prob: %f", yoloV8_.getClassName(object.label).c_str(), object.probability);
+                        // std::cout << "\tDetected : " << yoloV8_.getClassName(object.label) << ", Prob: " << object.probability << std::endl;
+                        // RCLCPP_INFO(this->get_logger(), "\tDetected : %s, Prob: %f", yoloV8_.getClassName(object.label).c_str(), object.probability);
                     }
                 }
+                i++;
             }
             // RCLCPP_INFO(this->get_logger(), "Detected %zu objects across all cameras", total_objects);
             // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
@@ -300,7 +301,7 @@ class YoloV8Node : public rclcpp::Node
         */
         void publishOneChannelMask(std::vector<Object> objects, bool visualize_one_channel_mask,
                 const sensor_msgs::msg::Image::ConstSharedPtr& image_msg,
-                yolov8_interfaces::msg::Yolov8Detections detectionMsg,
+                yolov8_interfaces::msg::Yolov8Detections &detectionMsg,
                 const std::string topic) {
             cv::Mat oneChannelMask;
             int img_width = image_msg->width;
@@ -360,6 +361,10 @@ class YoloV8Node : public rclcpp::Node
                 detectionMsg.indexes.push_back(index);
                 detectionMsg.labels.push_back(label);
                 detectionMsg.probabilities.push_back(prob);
+                if (label + 1 > yoloV8_.getNumClasses()) {
+                    RCLCPP_ERROR(this->get_logger(), "Label %d does not have a corresponding class name. Did you update yolov8.env to include all classes?", label);
+                    continue;
+                }
                 detectionMsg.class_names.push_back(yoloV8_.getClassName(label));
                 detectionMsg.bounding_boxes.push_back(bBoxMsg);
 

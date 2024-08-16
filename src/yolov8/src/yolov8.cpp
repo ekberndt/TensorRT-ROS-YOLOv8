@@ -634,6 +634,10 @@ void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects
 
         // Draw rectangles and text
         char text[256];
+        if (object.label + 1 > getNumClasses()) {
+            throw std::runtime_error("Error: Label index exceeds the number of classes defined. Did you update yolov8.env to include all classes?");
+        }
+
         sprintf(text, "%s %.1f%%", CLASS_NAMES[object.label].c_str(), object.probability * 100);
 
         int baseLine = 0;
@@ -643,7 +647,8 @@ void YoloV8::drawObjectLabels(cv::Mat& image, const std::vector<Object> &objects
 
         int x = object.rect.x;
         int y = object.rect.y + 1;
-
+        // std::cout << "Rect size: " << rect.size() << std::endl;
+        // std::cout << "Image size: " << image.size() << std::endl;
         cv::rectangle(image, rect, color * 255, scale + 1);
 
         cv::rectangle(image, cv::Rect(cv::Point(x, y), cv::Size(labelSize.width, labelSize.height + baseLine)),
