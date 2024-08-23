@@ -139,11 +139,11 @@ class YoloV8Node : public rclcpp::Node
 
             // RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
             // Print out a summary of the detected objects on each camera
-            if (objects.size() > 0) {
-                RCLCPP_INFO(this->get_logger(), "========== Detection Summary ==========");
-            } else {
-               std::cout << "No objects detected at time " << this->now().seconds() << std::endl;
-            }
+            // if (objects.size() > 0) {
+            //     RCLCPP_INFO(this->get_logger(), "========== Detection Summary ==========");
+            // } else {
+            //    std::cout << "No objects detected at time " << this->now().seconds() << std::endl;
+            // }
             int i = 0;
             for (const auto& batch : objects) {
                 std::string topic = camera_topics_[i];
