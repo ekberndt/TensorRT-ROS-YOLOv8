@@ -150,8 +150,8 @@ class YoloV8Node : public rclcpp::Node
                 if (!batch.empty()) {
                     RCLCPP_INFO(this->get_logger(), "Detected %zu object(s) on %s", batch.size(), topic.c_str());
                     for (const auto& object : batch) {
-                        // std::cout << "\tDetected : " << yoloV8_.getClassName(object.label) << ", Prob: " << object.probability << std::endl;
-                        // RCLCPP_INFO(this->get_logger(), "\tDetected : %s, Prob: %f", yoloV8_.getClassName(object.label).c_str(), object.probability);
+                        std::cout << "\tDetected : " << yoloV8_.getClassName(object.label) << ", Prob: " << object.probability << std::endl;
+                        RCLCPP_INFO(this->get_logger(), "\t%s: %f", yoloV8_.getClassName(object.label).c_str(), object.probability);
                     }
                 }
                 i++;
