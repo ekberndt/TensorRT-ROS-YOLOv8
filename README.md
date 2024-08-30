@@ -130,6 +130,10 @@ There are two tmuxp configurations in the `tmuxp` directory.
 - `rviz2_yolov8.yaml` - This configuration will run a configured RViz2, the ROS2 node, a `rosbag play` command, and a terminal to echo the topics.
 - `foxglove_yolov8.yaml` - This configuration will run Foxglove Studio, the ROS2 node, a `rosbag play` command, and a terminal to echo the topics.
 
+## Debugging
+
+To debug the ROS2 node with GDB, use the [ROS2 VSCode extension](https://docs.ros.org/en/rolling/How-To-Guides/ROS-2-IDEs.html) and use the `debug_yolov8.launch.py` launch file. The difference between the `debug_yolov8.launch.py` and the `yolov8.launch.py` is that the `nice -n` prefix is removed from `debug_yolov8.launch.py` as GDB can't attach to the process once it has been `nice`d.
+
 ## Errors
 
 In general if YOLOV8 is not working / crashing check the latest ros logs with the following command:

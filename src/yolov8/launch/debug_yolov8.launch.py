@@ -1,5 +1,6 @@
 '''
-Generates the launch description for the yolov8 package.
+Generates the launch description for the yolov8 package with the niceness prefix removed
+so that the debugger can attach to the process.
 '''
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -16,35 +17,24 @@ def generate_launch_description():
     """
     package_share_dir = get_package_share_directory('yolov8')
     models_dir = os.path.join(package_share_dir, 'models')
-    env_file_path = os.path.join(package_share_dir, 'yolov8.env')
-    # Get parameters from environment variables specifed in .env file
-    # Check if .env file exists
-    if not os.path.exists(env_file_path):
-        raise FileNotFoundError("Please create a yolov8.env file in the root of the yolov8 \
-                                workspace and rebuild the package so it can be installed in the \
-                                package's share directory.")
 
-    env = Env()
-    env.read_env(env_file_path)
-
-    onnx_model_path = env("ONNX_MODEL")
+    onnx_model_path = os.environ.get("ONNX_MODEL")
     model_dir = os.path.join(models_dir, onnx_model_path)
-    camera_topics = env.str("CAMERA_TOPICS").split(",")
-    print(camera_topics)
-    camera_buffer_hz = env.float("CAMERA_BUFFER_HZ")
-    visualize_masks = env.bool("VISUALIZE_MASKS")
-    enable_one_channel_mask = env.bool("ENABLE_ONE_CHANNEL_MASK")
-    visualize_one_channel_mask = env.bool("VISUALIZE_ONE_CHANNEL_MASK")
-    nice_level = env.int("NICE_LEVEL")
-    precision = env("PRECISION")
-    calibration_data_directory = env("CALIBRATION_DATA_DIRECTORY")
-    probability_threshold = env.float("PROBABILITY_THRESHOLD")
-    nms_threshold = env.float("NMS_THRESHOLD")
-    top_k = env.int("TOP_K")
-    seg_channels = env.int("SEG_CHANNELS")
-    seg_h = env.int("SEG_H")
-    seg_w = env.int("SEG_W")
-    segmentation_threshold = env.float("SEGMENTATION_THRESHOLD")
+    camera_topics = os.environ.get("CAMERA_TOPICS").split(",")
+    camera_buffer_hz = float(os.environ.get("CAMERA_BUFFER_HZ"))
+    visualize_masks = bool(os.environ.get("VISUALIZE_MASKS"))
+    enable_one_channel_mask = bool(os.environ.get("ENABLE_ONE_CHANNEL_MASK"))
+    visualize_one_channel_mask = bool(os.environ.get("VISUALIZE_ONE_CHANNEL_MASK"))
+    nice_level = int(os.environ.get("NICE_LEVEL"))
+    precision = os.environ.get("PRECISION")
+    calibration_data_directory = os.environ.get("CALIBRATION_DATA_DIRECTORY")
+    probability_threshold = float(os.environ.get("PROBABILITY_THRESHOLD"))
+    nms_threshold = float(os.environ.get("NMS_THRESHOLD"))
+    top_k = int(os.environ.get("TOP_K"))
+    seg_channels = int(os.environ.get("SEG_CHANNELS"))
+    seg_h = int(os.environ.get("SEG_H"))
+    seg_w = int(os.environ.get("SEG_W"))
+    segmentation_threshold = float(os.environ.get("SEGMENTATION_THRESHOLD"))
     # class_names = env("CLASS_NAMES").split(",")
 
     print("YOLOv8 Parameters:")
@@ -98,6 +88,5 @@ def generate_launch_description():
                 '--seg-threshold', str(segmentation_threshold),
                 # '--class-names', class_names
             ],
-            prefix=['nice -n ' + str(nice_level)]
         )
     ])
