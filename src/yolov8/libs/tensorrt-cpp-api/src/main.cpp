@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Load the TensorRT engine file from disk
-    succ = engine.loadNetwork();
+    succ = engine.loadNetwork(onnxModelPath);
     if (!succ) {
         throw std::runtime_error("Unable to load TRT engine.");
     }

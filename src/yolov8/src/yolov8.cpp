@@ -41,7 +41,7 @@ YoloV8::YoloV8(const std::string& onnxModelPath, const YoloV8Config& config)
     }
 
     // Load the TensorRT engine file
-    succ = m_trtEngine->loadNetwork();
+    succ = m_trtEngine->loadNetwork(onnxModelPath);
     if (!succ) {
         throw std::runtime_error("Error: Unable to load TensorRT engine weights into memory.");
     }
@@ -56,7 +56,9 @@ std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(std::vector<cv::cu
     // Populate the input vectors
     const std::vector<nvinfer1::Dims3>& inputDims = m_trtEngine->getInputDims();
     std::cout << "Engine input dims: " << inputDims[0].d[0] << ", " << inputDims[0].d[1] << ", " << inputDims[0].d[2] << ", " << inputDims[0].d[3] << std::endl;
+    // The input to the neural network is a tensor with dimensions [input][batch][cv::cuda::GpuMat]
     std::vector<std::vector<cv::cuda::GpuMat>> inputs {};
+    std::vector<cv::cuda::GpuMat> batches {};
 
     // Store the original image dimensions and the ratio used to resize the image so we can convert the
     // outputs back to the original image size in the post-processing stage
@@ -81,9 +83,11 @@ std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(std::vector<cv::cu
         // Input is (N, C, H, W)
         // The reason for the strange format is because it supports models with multiple inputs as well as batching
         // In our case though, the model only has a single input and we are using a batch size of N.
-        std::vector<cv::cuda::GpuMat> input{std::move(gpuImg)};
-        inputs.push_back(std::move(input));
+        batches.push_back(std::move(gpuImg));
+        // std::vector<cv::cuda::GpuMat> input{std::move(gpuImg)};
+        // inputs.push_back(std::move(input));
     };
+    inputs.push_back(std::move(batches));
 
     return inputs;
 }
@@ -285,7 +289,7 @@ std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::Mat> &img
 /**
  * Performs post-processing on a batch of image's segmentation feature vectors.
  * 
- * @param featureVectors The batched vector of 2D feature vectors to be processed.
+ * @param featureVectors The batched vector of 2D feature vectors to be processed of size [batch][output][feature_vector].
  * @return A batch of vectors of Object instances representing the post-processed segmentation results.
  * @throws std::logic_error If the feature vectors are not of the expected length.
  */
@@ -298,7 +302,7 @@ std::vector<std::vector<Object>> YoloV8::postProcessSegmentation(std::vector<std
 }
 
 /**
- * Performs post-processing on a single image's segmentation feature vectors (Does not support batching).
+ * Performs post-processing on 2 output buffers for a single batch of image's segmentation feature vectors.
  * 
  * @param featureVectors The 2D feature vectors to be processed.
  * @return A vector of Object instances representing the post-processed segmentation results.

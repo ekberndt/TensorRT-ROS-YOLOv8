@@ -127,7 +127,7 @@ public:
     bool build(std::string onnxModelPath, const std::array<float, 3>& subVals = {0.f, 0.f, 0.f}, const std::array<float, 3>& divVals = {1.f, 1.f, 1.f},
                bool normalize = true);
     // Load and prepare the network for inference
-    bool loadNetwork();
+    bool loadNetwork(std::string onnxModelPath);
     // Run inference.
     // Input format [input][batch][cv::cuda::GpuMat]
     // Output format [batch][output][feature_vector]

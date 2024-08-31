@@ -58,12 +58,22 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
     m_divVals = divVals;
     m_normalize = normalize;
 
+    // Get models directory from onnxModelPath
+    std::string modelsDir = onnxModelPath.substr(0, onnxModelPath.find_last_of("/"));
+
     // Only regenerate the engine file if it has not already been generated for the specified options
     m_engineName = serializeEngineOptions(m_options, onnxModelPath);
     batch_size_ = m_options.maxBatchSize;
-    std::cout << "Searching for engine file with name: " << m_engineName << std::endl;
+    std::cout << "Searching for engine file with name: " << m_engineName << " in directory: " << modelsDir << std::endl;
 
-    if (doesFileExist(m_engineName)) {
+    // Create Engine path
+    std::string engine_path = modelsDir + "/engines/";
+    if (!std::filesystem::exists(engine_path)) {
+        std::filesystem::create_directory(engine_path);
+    }
+    engine_path += m_engineName;
+
+    if (doesFileExist(engine_path)) {
         std::cout << "Engine found, not regenerating..." << std::endl;
         return true;
     }
@@ -222,7 +232,7 @@ bool Engine::build(std::string onnxModelPath, const std::array<float, 3>& subVal
     }
 
     // Write the engine to disk
-    std::ofstream outfile(m_engineName, std::ofstream::binary);
+    std::ofstream outfile(engine_path, std::ofstream::binary);
     outfile.write(reinterpret_cast<const char*>(plan->data()), plan->size());
 
     std::cout << "Success, saved engine to " << m_engineName << std::endl;
@@ -244,12 +254,17 @@ Engine::~Engine() {
  * @brief Deserializes engine from disk, creates a TensorRT ExecutionContext, and allocates tensors
  *      on the GPU for input and output buffers.
  *
+ * @param onnxModelPath The path to the ONNX model file directory.
  * @return true if the network is loaded successfully, false otherwise.
  * @throws std::runtime_error if there is an error reading the engine file or setting the GPU device index.
  */
-bool Engine::loadNetwork() {
+bool Engine::loadNetwork(std::string onnxModelPath) {
+    // Get engine path from onnxModelPath
+    std::string modelsDir = onnxModelPath.substr(0, onnxModelPath.find_last_of("/"));
+    std::string engine_path = modelsDir + "/engines/" + m_engineName;
+
     // Read the serialized model from disk
-    std::ifstream file(m_engineName, std::ios::binary | std::ios::ate);
+    std::ifstream file(engine_path, std::ios::binary | std::ios::ate);
     std::streamsize size = file.tellg();
     file.seekg(0, std::ios::beg);
 
@@ -346,13 +361,14 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
     const auto numInputs = m_inputDims.size();
     // if (inputs.size() != numInputs) { // Unbatched version
     // TODO: Does this only work for the batched version?
-    if (inputs[0].size() != numInputs) {
-        std::cout << "===== Error =====" << std::endl;
-        std::cout << "Incorrect number of inputs provided!" << std::endl;
-        std::cout << "Expected: " << numInputs << " inputs" << std::endl;
-        std::cout << "Got: " << inputs[0].size() << " inputs" << std::endl;
-        return false;
-    }
+    // TODO: This check does not work for the batched version as it is enforcing the batch size is 1
+    // if (inputs[0].size() != numInputs) {
+    //     std::cout << "===== Error =====" << std::endl;
+    //     std::cout << "Incorrect number of inputs provided!" << std::endl;
+    //     std::cout << "Expected: " << numInputs << " inputs" << std::endl;
+    //     std::cout << "Got: " << inputs[0].size() << " inputs" << std::endl;
+    //     return false;
+    // }
 
     // Ensure the batch size does not exceed the max
     if (inputs.size() > static_cast<size_t>(m_options.maxBatchSize)) {
@@ -363,57 +379,56 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
         return false;
     }
 
-    const auto batchSize = static_cast<int32_t>(inputs.size());
-
-    // TODO: This check does not work for the batched version
-    // // Make sure the same batch size was provided for all inputs
-    // for (size_t i = 1; i < inputs.size(); ++i) {
-    //     if (inputs[i].size() != static_cast<size_t>(batchSize)) {
-    //         std::cout << "===== Error =====" << std::endl;
-    //         std::cout << "The batch size needs to be constant for all inputs!" << std::endl;
-    //         return false;
-    //     }
-    // }
+    for (size_t i = 1; i < inputs.size(); ++i) {
+        if (inputs[i].size() != inputs[0].size()) {
+            std::cout << "===== Error =====" << std::endl;
+            std::cout << "The batch size needs to be constant for all inputs!" << std::endl;
+            return false;
+        }
+    }
 
     // Create the cuda stream that will be used for inference
     cudaStream_t inferenceCudaStream;
     checkCudaErrorCode(cudaStreamCreate(&inferenceCudaStream));
 
-    // Preprocess all the inputs buffers
+    // Iterate through the inputs (there should only be one input)
     for (size_t i = 0; i < numInputs; ++i) {
-        const auto& batchInput = inputs[i];
+        std::vector<cv::cuda::GpuMat> input_batches = inputs[i];
+        const auto batchSize = static_cast<int32_t>(input_batches.size());
         const auto& dims = m_inputDims[i];
 
-        // TODO why is this only batchedInput[0]?
-        // Check the dimentiomns of the image are the same size as the Engine dims
-        auto &input = batchInput[0];
-        if (input.channels() != dims.d[0] ||
-            input.rows != dims.d[1] ||
-            input.cols != dims.d[2]) {
+        // Check the dimentions of the first batched image are the same size as the Engine dims
+        // This does not check any other images in the batch
+        const auto& batch0 = input_batches[0];
+        if (batch0.channels() != dims.d[0] ||
+            batch0.rows != dims.d[1] ||
+            batch0.cols != dims.d[2]) {
             std::cout << "===== Error =====" << std::endl;
             std::cout << "Input does not have correct size!" << std::endl;
             std::cout << "Expected: (" << dims.d[0] << ", " << dims.d[1] << ", "
                     << dims.d[2] << ")" << std::endl;
-            std::cout << "Got: (" << input.channels() << ", " << input.rows << ", " << input.cols << ")" << std::endl;
+            std::cout << "Got: (" << batch0.channels() << ", " << batch0.rows << ", " << batch0.cols << ")" << std::endl;
             std::cout << "Ensure you resize your input image to the correct size" << std::endl;
             return false;
         }
 
         nvinfer1::Dims4 inputDims = {batchSize, dims.d[0], dims.d[1], dims.d[2]};
         m_context->setInputShape(m_IOTensorNames[i].c_str(), inputDims); // Define the batch size
-
         // OpenCV reads images into memory in NHWC format, while TensorRT expects images in NCHW format. 
         // The following method converts NHWC to NCHW.
         // Even though TensorRT expects NCHW at IO, during optimization, it can internally use NHWC to optimize cuda kernels
         // See: https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html#data-layout
         // Copy over the input data and perform the preprocessing
         // Convert the batch of images into a single contiguous blob
-        cv::cuda::GpuMat mfloat = blobFromGpuMats(batchInput, m_subVals, m_divVals, m_normalize);
+        cv::cuda::GpuMat mfloat = blobFromGpuMats(input_batches, m_subVals, m_divVals, m_normalize);
         auto *dataPointer = mfloat.ptr<void>();
 
         // Copy the input blob tensor into the GPU input buffer
+        // Input blob size
+        const auto blob_size = mfloat.cols * mfloat.rows * sizeof(float);
         checkCudaErrorCode(cudaMemcpyAsync(m_buffers[i], dataPointer,
-                                        mfloat.cols * mfloat.rows * mfloat.channels() * sizeof(float),
+                                        // mfloat.cols * mfloat.rows * mfloat.channels() * sizeof(float),
+                                        blob_size,
                                         cudaMemcpyDeviceToDevice, inferenceCudaStream));
     }
 
@@ -433,7 +448,7 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
     }
 
     // Run inference.
-    std::cout << "Running enqueuV3..." << std::endl;
+    std::cout << "Running enqueueV3..." << std::endl;
     bool status = m_context->enqueueV3(inferenceCudaStream);
     if (!status) {
         std::cout << "===== Error =====" << std::endl;
@@ -443,11 +458,14 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
 
     // TODO: is this batched version?
     // Copy the outputs from GPU's output buffer back to CPU
+    // Output shape of the model is [batch][output][feature_vector]
     featureVectors.clear();
 
+    // TODO: fix batchSize
+    const auto batchSize = static_cast<int32_t>(inputs[0].size());
     for (int batch = 0; batch < batchSize; ++batch) {
         // Batch
-        std::vector<std::vector<float>> batchOutputs{};
+        std::vector<std::vector<float>> outputs{};
         // Iterate through the output buffers (as defined by the bindings of the optimization profile(s))
         // Start at index m_inputDims.size() to account for the inputs in our m_buffers
         for (int32_t outputBinding = numInputs; outputBinding < m_engine->getNbBindings(); ++outputBinding) {
@@ -456,9 +474,9 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
             output.resize(outputLenFloat);
             // Copy the output tensor from the GPU to the CPU
             checkCudaErrorCode(cudaMemcpyAsync(output.data(), static_cast<char*>(m_buffers[outputBinding]) + (batch * sizeof(float) * outputLenFloat), outputLenFloat * sizeof(float), cudaMemcpyDeviceToHost, inferenceCudaStream));
-            batchOutputs.emplace_back(std::move(output));
+            outputs.emplace_back(std::move(output));
         }
-            featureVectors.emplace_back(std::move(batchOutputs));
+        featureVectors.emplace_back(std::move(outputs));
     }
 
     // Synchronize the cuda stream
@@ -471,26 +489,37 @@ bool Engine::runInference(const std::vector<std::vector<cv::cuda::GpuMat>> &inpu
 /**
  * Converts a batch of GPU mats (a batch of tensors) to a single GPU contiguous mat blob in GPU memory (one tensor).
  *
- * @param batchInput The vector of GPU mats representing the batch input.
+ * @param batches The vector of GPU mats representing the input batches.
  * @param subVals The array of three float values used for mean subtraction.
  * @param divVals The array of three float values used for scaling.
  * @param normalize A boolean flag indicating whether to normalize the output.
  * @return The GPU mat blob representing the converted batch.
  */
-cv::cuda::GpuMat Engine::blobFromGpuMats(const std::vector<cv::cuda::GpuMat>& batchInput, const std::array<float, 3>& subVals, const std::array<float, 3>& divVals, bool normalize) {
-    cv::cuda::GpuMat gpu_dst(1, batchInput[0].rows * batchInput[0].cols * batchInput.size(), CV_8UC3);
+cv::cuda::GpuMat Engine::blobFromGpuMats(const std::vector<cv::cuda::GpuMat>& batches, const std::array<float, 3>& subVals, const std::array<float, 3>& divVals, bool normalize) {
+    int batch_size = batches.size();
+    int channels = batches[0].channels();
+    int height = batches[0].rows;
+    int width = batches[0].cols;
 
-    size_t width = batchInput[0].cols * batchInput[0].rows;
-    for (size_t img = 0; img < batchInput.size(); img++) {
-        std::vector<cv::cuda::GpuMat> input_channels{
-                cv::cuda::GpuMat(batchInput[0].rows, batchInput[0].cols, CV_8U, &(gpu_dst.ptr()[0 + width * 3 * img])),
-                cv::cuda::GpuMat(batchInput[0].rows, batchInput[0].cols, CV_8U, &(gpu_dst.ptr()[width + width * 3 * img])),
-                cv::cuda::GpuMat(batchInput[0].rows, batchInput[0].cols, CV_8U,
-                                 &(gpu_dst.ptr()[width * 2 + width * 3 * img]))
-        };
-        cv::cuda::split(batchInput[img], input_channels);  // HWC -> CHW
+    size_t img_size = height * width * channels;
+    cv::cuda::GpuMat gpu_dst(batch_size, img_size, CV_8UC3);
+
+    size_t img_channel_size = width * height;
+    for (size_t batch = 0; batch < batch_size; batch++) {
+        cv::cuda::GpuMat input_channels[channels];
+        for (int j = 0; j < channels; j++) {
+            input_channels[j] = cv::cuda::GpuMat(height, width, CV_8UC1, &(gpu_dst.ptr()[img_size * batch + img_channel_size * j]));
+        }
+        // std::vector<cv::cuda::GpuMat> input_channels{
+        //         cv::cuda::GpuMat(batchInput.rows, batchInput.cols, CV_8U, &(gpu_dst.ptr()[0 + width * 3 * batch])),
+        //         cv::cuda::GpuMat(batchInput.rows, batchInput.cols, CV_8U, &(gpu_dst.ptr()[width + width * 3 * batch])),
+        //         cv::cuda::GpuMat(batchInput.rows, batchInput.cols, CV_8U,
+        //                          &(gpu_dst.ptr()[width * 2 + width * 3 * batch]))
+        // };
+        cv::cuda::split(batches[batch], input_channels);  // HWC -> CHW
     }
 
+    // Normalize the images
     cv::cuda::GpuMat mfloat;
     if (normalize) {
         // [0.f, 1.f]
@@ -506,6 +535,40 @@ cv::cuda::GpuMat Engine::blobFromGpuMats(const std::vector<cv::cuda::GpuMat>& ba
 
     return mfloat;
 }
+
+// cv::cuda::GpuMat Engine::blobFromGpuMats(const std::vector<cv::cuda::GpuMat>& batches, const std::array<float, 3>& subVals, const std::array<float, 3>& divVals, bool normalize) {
+//     int batchSize = batches.size();
+//     int channels = batches[0].channels();
+//     int height = batches[0].rows;
+//     int width = batches[0].cols;
+
+//     cv::cuda::GpuMat gpu_dst(batchSize, height * width * channels, CV_8UC1);
+
+//     size_t size = height * width * channels;
+//     for (int i = 0; i < batchSize; i++) {
+//         cv::cuda::GpuMat batchInput = batches[i];
+//         cv::cuda::GpuMat input_channels[channels];
+//         for (int j = 0; j < channels; j++) {
+//             input_channels[j] = cv::cuda::GpuMat(height, width, CV_8UC1, &(gpu_dst.ptr()[size * i + size * j]));
+//         }
+//         cv::cuda::split(batchInput, input_channels);  // HWC -> CHW
+//     }
+
+//     cv::cuda::GpuMat mfloat;
+//     if (normalize) {
+//         // [0.f, 1.f]
+//         gpu_dst.convertTo(mfloat, CV_32FC1, 1.f / 255.f);
+//     } else {
+//         // [0.f, 255.f]
+//         gpu_dst.convertTo(mfloat, CV_32FC1);
+//     }
+
+//     // Apply scaling and mean subtraction
+//     cv::cuda::subtract(mfloat, cv::Scalar(subVals[0]), mfloat, cv::noArray(), -1);
+//     cv::cuda::divide(mfloat, cv::Scalar(divVals[0]), mfloat, 1, -1);
+
+//     return mfloat;
+// }
 
 std::string Engine::serializeEngineOptions(const Options &options, const std::string& onnxModelPath) {
     const auto filenamePos = onnxModelPath.find_last_of('/') + 1;
