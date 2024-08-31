@@ -159,7 +159,7 @@ inline std::string parseArguments(int argc, char* argv[], YoloV8Config& config, 
 
             else if (flag == "calibration-data") {
                 if (!tryGetNextArgument(argc, argv, i, nextArgument, flag))
-                    return "Error: Unable to get next argument for flag 'calibration-data'.";
+                    return "No path specficied for flag 'calibration-data'.";
 
                 if (nextArgument.empty()) {
                     continue;

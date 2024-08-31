@@ -423,7 +423,7 @@ int main(int argc, char *argv[]) {
 
     std::string parseArgsError = parseArguments(argc, argv, config, onnxModelPath);
     if (!parseArgsError.empty()) {
-        RCLCPP_WARN(rclcpp::get_logger("rclcpp"), "YOLOv8 does not support and is throwing out argument: %s", parseArgsError.c_str());
+        RCLCPP_WARN(rclcpp::get_logger("rclcpp"), "YOLOv8 arguement parser: %s", parseArgsError.c_str());
     }
     // Create the YoloV8 engine
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Creating YoloV8 engine --- Could take a while if Engine file is not already built and cached.");
