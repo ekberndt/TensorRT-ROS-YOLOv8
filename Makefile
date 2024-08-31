@@ -83,3 +83,35 @@ install-opencv-cuda:
 .PHONY: uninstall-opencv-cuda
 uninstall-opencv-cuda:
 	source ./src/yolov8/scripts/uninstall_opencv.sh
+
+# -----------------------------------------------------------------------------
+# Target: copy-engines
+# Description: Copies the engine files from the
+#  install/yolov8/share/yolov8/models/engines/ directory to the current
+#  directory to prevent the engines from being cleaned when the install
+#  directory is removed.
+# Parameters: None
+# Usage: make copy-engines
+# -----------------------------------------------------------------------------
+.PHONY: copy-engines
+copy-engine:
+	cp install/yolov8/share/yolov8/models/engines/* .
+
+# -----------------------------------------------------------------------------
+# Target: return-engine
+# Description: Copies the engine files from the current directory to the
+#  install/yolov8/share/yolov8/models/engines/ directory to allow the engines
+#  to be used by the yolov8 package.
+# Parameters:
+# 	- ENGINE: The path of the engine file to copy.
+# Usage: make return-engine ENGINE=<ENGINE>
+# -----------------------------------------------------------------------------
+.PHONY: return-engine
+return-engine:
+	# Check if the ENGINE parameter is set
+	if [ -z ${ENGINE} ]; then
+		echo "ENGINE parameter not set."
+		exit 1
+	fi
+	mkdir -p install/yolov8/share/yolov8/models/engines/
+	cp ${ENGINE} install/yolov8/share/yolov8/models/engines/
