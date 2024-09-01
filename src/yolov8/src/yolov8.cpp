@@ -209,10 +209,6 @@ std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::cuda::Gpu
     if (!succ) {
         throw std::runtime_error("Error: Unable to run inference.");
     }
-    std::cout << "Batch size (feature vectors size): " << featureVectors.size() << std::endl;
-    std::cout << "Number of output buffers (Feature vectors[0] size): " << featureVectors[0].size() << std::endl;
-    std::cout << "Size of the first output buffer (Feature vectors[0][0] size): " << featureVectors[0][0].size() << std::endl;
-    std::cout << "Size of the second output buffer (Feature vectors[1][0] size): " << featureVectors[0][1].size() << std::endl;
 #ifdef ENABLE_BENCHMARKS
     static long long t2 = 0;
     t2 += s2.elapsedTime<long long, std::chrono::microseconds>();

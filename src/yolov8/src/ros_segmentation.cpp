@@ -112,8 +112,8 @@ class YoloV8Node : public rclcpp::Node
 
             std::map<std::string, cv::Mat> images_map;
 
-            // Check if all the camera topics are in the processing buffer
-            std::vector<std::string> missing_topics = checkCameraTopicsInBuffer();
+            // Check what camera topics are in the processing buffer
+            auto [processing_topics, missing_topics] = checkCameraTopicsInBuffer();
             if (missing_topics.size() == camera_topics_.size()) {
                 std::cout << "No camera topics in the processing buffer at time " << this->now().seconds() << std::endl;
                 return;
@@ -136,24 +136,22 @@ class YoloV8Node : public rclcpp::Node
             // Run inference
             std::vector<std::vector<Object>> objects = yoloV8_.detectObjects(images);
 
-            // RCLCPP_INFO(this->get_logger(), "Inference ran on %zu cameras", images.size());
-            // Print out a summary of the detected objects on each camera
-            // if (objects.size() > 0) {
-            //     RCLCPP_INFO(this->get_logger(), "========== Detection Summary ==========");
-            // } else {
-            //    std::cout << "No objects detected at time " << this->now().seconds() << std::endl;
-            // }
+            if (objects.size() == 0) {
+               std::cout << "No objects detected at time " << this->now().seconds() << std::endl;
+            }
+
             int i = 0;
             for (const auto& batch : objects) {
-                std::string topic = camera_topics_[i];
                 if (!batch.empty()) {
+                    std::string topic = processing_topics[i];
                     RCLCPP_INFO(this->get_logger(), "Detected %zu object(s) on %s", batch.size(), topic.c_str());
                     for (const auto& object : batch) {
                         std::cout << "\tDetected : " << yoloV8_.getClassName(object.label) << ", Prob: " << object.probability << std::endl;
                         RCLCPP_INFO(this->get_logger(), "\t%s: %f", yoloV8_.getClassName(object.label).c_str(), object.probability);
                     }
+                    i++;
                 }
-                i++;
+
             }
             // RCLCPP_INFO(this->get_logger(), "Detected %zu objects across all cameras", total_objects);
             // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
@@ -166,12 +164,16 @@ class YoloV8Node : public rclcpp::Node
         /*
         * Check number of camera topics in the processing buffer and return any missing topics
         *
-        * @return a vector of missing camera topics
+        * @return A pair of vectors containing the camera topics in the processing buffer and the missing topics
         */
-        std::vector<std::string> checkCameraTopicsInBuffer() {
+        std::pair<std::vector<std::string>, std::vector<std::string>> checkCameraTopicsInBuffer() {
             std::vector<std::string> missing_topics;
+            std::vector<std::string> processing_topics;
             if (processing_buffer_.size() == camera_topics_.size()) {
                 std::cout << "All camera topics are in the processing buffer" << std::endl;
+                for (const std::string& topic : camera_topics_) {
+                    processing_topics.push_back(topic);
+                }
             } else {
                 if (processing_buffer_.size() == 0) {
                     std::cout << "No camera topics are in the processing buffer" << std::endl;
@@ -180,11 +182,13 @@ class YoloV8Node : public rclcpp::Node
                     if (processing_buffer_.find(topic) == processing_buffer_.end()) {
                         std::cout << "Camera topic " << topic << " is missing from the processing buffer" << std::endl;
                         missing_topics.push_back(topic);
+                    } else {
+                        processing_topics.push_back(topic);
                     }
                 }
             }
 
-            return missing_topics;
+            return std::make_pair(processing_topics, missing_topics);
         }
 
         /*
