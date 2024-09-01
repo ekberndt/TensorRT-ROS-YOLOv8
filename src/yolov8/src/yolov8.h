@@ -65,11 +65,11 @@ public:
     YoloV8(const std::string& onnxModelPath, const YoloV8Config& config);
 
     // Upload image(s) to GPU then call detectObjects
-    std::vector<Object> detectObjects(const cv::Mat& imgMat);
+    // std::vector<Object> detectObjects(const cv::Mat& imgMat); // Non-batched version
     std::vector<std::vector<Object>> detectObjects(std::vector<cv::Mat> &imgMat); // Batched version
 
     // Run inference on objects uploaded to the GPU
-    std::vector<Object> detectObjects(const cv::cuda::GpuMat& imgMat);
+    // std::vector<Object> detectObjects(const cv::cuda::GpuMat& imgMat); // Non-batched version
     std::vector<std::vector<Object>> detectObjects(std::vector<cv::cuda::GpuMat> &imgMat);  // Batched version
 
     // Create a one channel segmentation mask for all segmentation objects
@@ -95,15 +95,15 @@ private:
     std::vector<std::vector<cv::cuda::GpuMat>> preprocess(const cv::cuda::GpuMat& gpuImg);
     std::vector<std::vector<cv::cuda::GpuMat>> preprocess(std::vector<cv::cuda::GpuMat> &gpuImg); // Batched version
 
-    // Postprocess the output
-    std::vector<Object> postprocessDetect(std::vector<float>& featureVector);
+    // // Postprocess the output
+    // std::vector<Object> postprocessDetect(std::vector<float>& featureVector);
 
-    // Postprocess the output for pose model
-    std::vector<Object> postprocessPose(std::vector<float>& featureVector);
+    // // Postprocess the output for pose model
+    // std::vector<Object> postprocessPose(std::vector<float>& featureVector);
 
     // Postprocess the output for segmentation model
     std::vector<std::vector<Object>> postProcessSegmentation(std::vector<std::vector<std::vector<float>>>& batchedFeatureVectors); // Batched version
-    std::vector<Object> postProcessSegmentation(std::vector<std::vector<float>>& featureVectors);
+    std::vector<Object> postProcessSegmentation(std::vector<std::vector<float>>& featureVectors, int batch_Index);
 
     std::unique_ptr<Engine> m_trtEngine = nullptr;
 
@@ -114,9 +114,9 @@ private:
     const bool NORMALIZE = true;
     
     // Image dimensions gathered from the input image
-    float m_ratio_ = 1;
-    float m_imgWidth_ = 0;
-    float m_imgHeight_ = 0;
+    std::vector<float> m_ratio_ = {};
+    std::vector<float> m_imgWidth_ = {};
+    std::vector<float> m_imgHeight_ = {};
 
     // Filter thresholds
     const float PROBABILITY_THRESHOLD;

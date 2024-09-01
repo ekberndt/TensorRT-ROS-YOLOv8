@@ -133,7 +133,6 @@ class YoloV8Node : public rclcpp::Node
                 images.push_back(pair.second);
             }
 
-            // TODO: batch to network properly
             // Run inference
             std::vector<std::vector<Object>> objects = yoloV8_.detectObjects(images);
 

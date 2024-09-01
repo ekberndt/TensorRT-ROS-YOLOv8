@@ -59,20 +59,17 @@ std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(std::vector<cv::cu
     // The input to the neural network is a tensor with dimensions [input][batch][cv::cuda::GpuMat]
     std::vector<std::vector<cv::cuda::GpuMat>> inputs {};
     std::vector<cv::cuda::GpuMat> batches {};
-
-    // Store the original image dimensions and the ratio used to resize the image so we can convert the
-    // outputs back to the original image size in the post-processing stage
-    // Grab a sample image to get the image dimensions
-    const cv::cuda::GpuMat sampleImg = gpuImgs[0];
-    // These params will be used in the post-processing stage
-    // TODO: What if different images in the batch have different dimensions?
-    m_imgHeight_ = sampleImg.rows;
-    m_imgWidth_ = sampleImg.cols;
-    m_ratio_ =  1.f / std::min(inputDims[0].d[2] / static_cast<float>(sampleImg.cols),
-        inputDims[0].d[1] / static_cast<float>(sampleImg.rows));
-
+    m_imgHeight_.clear();
+    m_imgWidth_.clear();
+    m_ratio_.clear();
     // Iterate over each image in the batch
     for (cv::cuda::GpuMat &gpuImg : gpuImgs) {
+        // Store the original image dimensions and the ratio used to resize the image so we can convert the
+        // outputs back to the original image size in the post-processing stage
+        m_imgHeight_.push_back(gpuImg.rows);
+        m_imgWidth_.push_back(gpuImg.cols);
+        m_ratio_.push_back(1.f / std::min(inputDims[0].d[2] / static_cast<float>(gpuImg.cols),
+            inputDims[0].d[1] / static_cast<float>(gpuImg.rows)));
          // Resize to the model expected input size while maintaining the aspect ratio with the use of padding
         if (gpuImg.rows != inputDims[0].d[1] || gpuImg.cols != inputDims[0].d[2]) {
             // Only resize if not already the right size to avoid unecessary copy
@@ -112,79 +109,79 @@ std::vector<std::vector<cv::cuda::GpuMat>> YoloV8::preprocess(const cv::cuda::Gp
     std::vector<std::vector<cv::cuda::GpuMat>> inputs {std::move(input)};
 
     // These params will be used in the post-processing stage
-    m_imgHeight_ = rgbMat.rows;
-    m_imgWidth_ = rgbMat.cols;
-    m_ratio_ =  1.f / std::min(inputDims[0].d[2] / static_cast<float>(rgbMat.cols), inputDims[0].d[1] / static_cast<float>(rgbMat.rows));
+    m_imgHeight_.push_back(rgbMat.rows);
+    m_imgWidth_.push_back(rgbMat.cols);
+    m_ratio_.push_back(1.f / std::min(inputDims[0].d[2] / static_cast<float>(rgbMat.cols), inputDims[0].d[1] / static_cast<float>(rgbMat.rows)));
 
     return inputs;
 }
 
-/*
-* Run inference on a single image (does not support batching).
-*
-* @param gpuImgs: a vector of input images
-*/
-std::vector<Object> YoloV8::detectObjects(const cv::cuda::GpuMat &imgMat) {
-    // Preprocess the input image
-#ifdef ENABLE_BENCHMARKS
-    static int numIts = 1;
-    preciseStopwatch s1;
-#endif
-    const auto input = preprocess(imgMat);
-#ifdef ENABLE_BENCHMARKS
-    static long long t1 = 0;
-    t1 += s1.elapsedTime<long long, std::chrono::microseconds>();
-    std::cout << "Avg Preprocess time: " << (t1 / numIts) / 1000.f << " ms" << std::endl;
-#endif
-    // Run inference using the TensorRT engine
-#ifdef ENABLE_BENCHMARKS
-    preciseStopwatch s2;
-#endif
-    std::vector<std::vector<std::vector<float>>> featureVectors;
-    auto succ = m_trtEngine->runInference(input, featureVectors);
-    if (!succ) {
-        throw std::runtime_error("Error: Unable to run inference.");
-    }
-#ifdef ENABLE_BENCHMARKS
-    static long long t2 = 0;
-    t2 += s2.elapsedTime<long long, std::chrono::microseconds>();
-    std::cout << "Avg Inference time: " << (t2 / numIts) / 1000.f << " ms" << std::endl;
-    preciseStopwatch s3;
-#endif
-    // Check if our model does only object detection or also supports segmentation
-    std::vector<Object> ret;
-    const auto& numOutputs = m_trtEngine->getOutputDims().size();
-    if (numOutputs == 1) {
-        // Object detection or pose estimation
-        // Since we have a batch size of 1 and only 1 output, we must convert the output from a 3D array to a 1D array.
-        std::vector<float> featureVector;
-        Engine::transformOutput(featureVectors, featureVector);
+// /*
+// * Run inference on a single image (does not support batching).
+// *
+// * @param gpuImgs: a vector of input images
+// */
+// std::vector<Object> YoloV8::detectObjects(const cv::cuda::GpuMat &imgMat) {
+//     // Preprocess the input image
+// #ifdef ENABLE_BENCHMARKS
+//     static int numIts = 1;
+//     preciseStopwatch s1;
+// #endif
+//     const auto input = preprocess(imgMat);
+// #ifdef ENABLE_BENCHMARKS
+//     static long long t1 = 0;
+//     t1 += s1.elapsedTime<long long, std::chrono::microseconds>();
+//     std::cout << "Avg Preprocess time: " << (t1 / numIts) / 1000.f << " ms" << std::endl;
+// #endif
+//     // Run inference using the TensorRT engine
+// #ifdef ENABLE_BENCHMARKS
+//     preciseStopwatch s2;
+// #endif
+//     std::vector<std::vector<std::vector<float>>> featureVectors;
+//     auto succ = m_trtEngine->runInference(input, featureVectors);
+//     if (!succ) {
+//         throw std::runtime_error("Error: Unable to run inference.");
+//     }
+// #ifdef ENABLE_BENCHMARKS
+//     static long long t2 = 0;
+//     t2 += s2.elapsedTime<long long, std::chrono::microseconds>();
+//     std::cout << "Avg Inference time: " << (t2 / numIts) / 1000.f << " ms" << std::endl;
+//     preciseStopwatch s3;
+// #endif
+//     // Check if our model does only object detection or also supports segmentation
+//     std::vector<Object> ret;
+//     const auto& numOutputs = m_trtEngine->getOutputDims().size();
+//     if (numOutputs == 1) {
+//         // Object detection or pose estimation
+//         // Since we have a batch size of 1 and only 1 output, we must convert the output from a 3D array to a 1D array.
+//         std::vector<float> featureVector;
+//         Engine::transformOutput(featureVectors, featureVector);
 
-        const auto& outputDims = m_trtEngine->getOutputDims();
-        int numChannels = outputDims[outputDims.size() - 1].d[1];
-        // TODO: Need to improve this to make it more generic (don't use magic number).
-        // For now it works with Ultralytics pretrained models.
-        if (numChannels == 56) {
-            // Pose estimation
-            ret = postprocessPose(featureVector);
-        } else {
-            // Object detection
-            ret = postprocessDetect(featureVector);
-        }
-    } else {
-        // Segmentation
-        // Since we have a batch size of 1 and 2 outputs, we must convert the output from a 3D array to a 2D array.
-        std::vector<std::vector<float>> featureVector;
-        Engine::transformOutput(featureVectors, featureVector);
-        ret = postProcessSegmentation(featureVector);
-    }
-#ifdef ENABLE_BENCHMARKS
-    static long long t3 = 0;
-    t3 +=  s3.elapsedTime<long long, std::chrono::microseconds>();
-    std::cout << "Avg Postprocess time: " << (t3 / numIts++) / 1000.f << " ms\n" << std::endl;
-#endif
-    return ret;
-}
+//         const auto& outputDims = m_trtEngine->getOutputDims();
+//         int numChannels = outputDims[outputDims.size() - 1].d[1];
+//         // TODO: Need to improve this to make it more generic (don't use magic number).
+//         // For now it works with Ultralytics pretrained models.
+//         if (numChannels == 56) {
+//             // Pose estimation
+//             ret = postprocessPose(featureVector);
+//         } else {
+//             // Object detection
+//             ret = postprocessDetect(featureVector);
+//         }
+//     } else {
+//         // Segmentation
+//         // Since we have a batch size of 1 and 2 outputs, we must convert the output from a 3D array to a 2D array.
+//         std::vector<std::vector<float>> featureVector;
+//         Engine::transformOutput(featureVectors, featureVector);
+//         ret = postProcessSegmentation(featureVector);
+//     }
+// #ifdef ENABLE_BENCHMARKS
+//     static long long t3 = 0;
+//     t3 +=  s3.elapsedTime<long long, std::chrono::microseconds>();
+//     std::cout << "Avg Postprocess time: " << (t3 / numIts++) / 1000.f << " ms\n" << std::endl;
+// #endif
+//     return ret;
+// }
 
 /*
 * Run inference on a batch of images. Note this function only support segmentation models.
@@ -232,20 +229,20 @@ std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::cuda::Gpu
     return ret;
 }
 
-/**
- * Uploads the input image to GPU memory and calls detectObjects(...) on the GPU image.
- * 
- * @param imgMat The input image in BGR format.
- * @return A vector of detected objects.
- */
-std::vector<Object> YoloV8::detectObjects(const cv::Mat &imgMat) {
-    // Upload the image to GPU memory
-    cv::cuda::GpuMat gpuImg;
-    gpuImg.upload(imgMat);
+// /**
+//  * Uploads the input image to GPU memory and calls detectObjects(...) on the GPU image.
+//  * 
+//  * @param imgMat The input image in BGR format.
+//  * @return A vector of detected objects.
+//  */
+// std::vector<Object> YoloV8::detectObjects(const cv::Mat &imgMat) {
+//     // Upload the image to GPU memory
+//     cv::cuda::GpuMat gpuImg;
+//     gpuImg.upload(imgMat);
 
-    // Call detectObjects with the GPU image
-    return detectObjects(gpuImg);
-}
+//     // Call detectObjects with the GPU image
+//     return detectObjects(gpuImg);
+// }
 
 /**
  * Uploads the batched input images to GPU memory and calls detectObjects(...) on the GPU images.
@@ -295,8 +292,10 @@ std::vector<std::vector<Object>> YoloV8::detectObjects(std::vector<cv::Mat> &img
  */
 std::vector<std::vector<Object>> YoloV8::postProcessSegmentation(std::vector<std::vector<std::vector<float>>>& batchedFeatureVectors) {
     std::vector<std::vector<Object>> batched_objects;
+    int batch_index = 0;
     for (std::vector<std::vector<float>> &featureVectors : batchedFeatureVectors) {
-        batched_objects.push_back(postProcessSegmentation(featureVectors));
+        batched_objects.push_back(postProcessSegmentation(featureVectors, batch_index));
+        batch_index++;
     }
     return batched_objects;
 }
@@ -305,10 +304,11 @@ std::vector<std::vector<Object>> YoloV8::postProcessSegmentation(std::vector<std
  * Performs post-processing on 2 output buffers for a single batch of image's segmentation feature vectors.
  * 
  * @param featureVectors The 2D feature vectors to be processed.
+ * @param batch_index The index of the batch.
  * @return A vector of Object instances representing the post-processed segmentation results.
  * @throws std::logic_error If the feature vectors are not of the expected length.
  */
-std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<float>>& featureVectors) {
+std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<float>>& featureVectors, int batch_index) {
     // Retrieve the output dimensions
     // TODO: For the batched version, should we check the output dimensions of each batch? (Likely yes as camera feeds may have different resolutions)
     const auto& outputDims = m_trtEngine->getOutputDims();
@@ -352,10 +352,10 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
             float w = *bboxesPtr++;
             float h = *bboxesPtr;
 
-            float x0 = std::clamp((x - 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
-            float y0 = std::clamp((y - 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
-            float x1 = std::clamp((x + 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
-            float y1 = std::clamp((y + 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
+            float x0 = std::clamp((x - 0.5f * w) * m_ratio_[batch_index], 0.f, m_imgWidth_[batch_index]);
+            float y0 = std::clamp((y - 0.5f * h) * m_ratio_[batch_index], 0.f, m_imgHeight_[batch_index]);
+            float x1 = std::clamp((x + 0.5f * w) * m_ratio_[batch_index], 0.f, m_imgWidth_[batch_index]);
+            float y1 = std::clamp((y + 0.5f * h) * m_ratio_[batch_index], 0.f, m_imgHeight_[batch_index]);
 
             int label = maxSPtr - scoresPtr;
             cv::Rect_<float> bbox;
@@ -412,14 +412,15 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
         cv::split(maskMat, maskChannels);
         const auto inputDims = m_trtEngine->getInputDims();
 
+        // Maintain the aspect ratio of the original image
         cv::Rect roi;
-        if (m_imgHeight_ > m_imgWidth_) {
-            roi = cv::Rect(0, 0, SEG_W * m_imgWidth_ / m_imgHeight_, SEG_H);
+        if (m_imgHeight_[batch_index] > m_imgWidth_[batch_index]) {
+            roi = cv::Rect(0, 0, SEG_W * m_imgWidth_[batch_index] / m_imgHeight_[batch_index], SEG_H);
         } else {
-            roi = cv::Rect(0, 0, SEG_W, SEG_H * m_imgHeight_ / m_imgWidth_);
+            roi = cv::Rect(0, 0, SEG_W, SEG_H * m_imgHeight_[batch_index] / m_imgWidth_[batch_index]);
         }
 
-
+        // Resize the mask to the original image size
         for (size_t i = 0; i < indices.size(); i++)
         {
             cv::Mat dest, mask;
@@ -429,10 +430,10 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
             cv::resize(
                     dest,
                     mask,
-                    cv::Size(static_cast<int>(m_imgWidth_), static_cast<int>(m_imgHeight_)),
+                    cv::Size(static_cast<int>(m_imgWidth_[batch_index]), static_cast<int>(m_imgHeight_[batch_index])),
                     cv::INTER_LINEAR
             );
-            // Convert to binary mask for pixels above segmentation threshold
+            // Add mask for pixels above segmentation threshold
             objs[i].boxMask = mask(objs[i].rect) > SEGMENTATION_THRESHOLD;
         }
     }
@@ -440,157 +441,157 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
     return objs;
 }
 
-std::vector<Object> YoloV8::postprocessPose(std::vector<float> &featureVector) {
-    const auto& outputDims = m_trtEngine->getOutputDims();
-    auto numChannels = outputDims[0].d[1];
-    auto numAnchors = outputDims[0].d[2];
+// std::vector<Object> YoloV8::postprocessPose(std::vector<float> &featureVector) {
+//     const auto& outputDims = m_trtEngine->getOutputDims();
+//     auto numChannels = outputDims[0].d[1];
+//     auto numAnchors = outputDims[0].d[2];
 
-    std::vector<cv::Rect> bboxes;
-    std::vector<float> scores;
-    std::vector<int> labels;
-    std::vector<int> indices;
-    std::vector<std::vector<float>> kpss;
+//     std::vector<cv::Rect> bboxes;
+//     std::vector<float> scores;
+//     std::vector<int> labels;
+//     std::vector<int> indices;
+//     std::vector<std::vector<float>> kpss;
 
-    cv::Mat output = cv::Mat(numChannels, numAnchors, CV_32F, featureVector.data());
-    output = output.t();
+//     cv::Mat output = cv::Mat(numChannels, numAnchors, CV_32F, featureVector.data());
+//     output = output.t();
 
-    // Get all the YOLO proposals
-    for (int i = 0; i < numAnchors; i++) {
-        auto rowPtr = output.row(i).ptr<float>();
-        auto bboxesPtr = rowPtr;
-        auto scoresPtr = rowPtr + 4;
-        auto kps_ptr = rowPtr + 5;
-        float score = *scoresPtr;
-        if (score > PROBABILITY_THRESHOLD) {
-            float x = *bboxesPtr++;
-            float y = *bboxesPtr++;
-            float w = *bboxesPtr++;
-            float h = *bboxesPtr;
+//     // Get all the YOLO proposals
+//     for (int i = 0; i < numAnchors; i++) {
+//         auto rowPtr = output.row(i).ptr<float>();
+//         auto bboxesPtr = rowPtr;
+//         auto scoresPtr = rowPtr + 4;
+//         auto kps_ptr = rowPtr + 5;
+//         float score = *scoresPtr;
+//         if (score > PROBABILITY_THRESHOLD) {
+//             float x = *bboxesPtr++;
+//             float y = *bboxesPtr++;
+//             float w = *bboxesPtr++;
+//             float h = *bboxesPtr;
 
-            float x0 = std::clamp((x - 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
-            float y0 = std::clamp((y - 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
-            float x1 = std::clamp((x + 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
-            float y1 = std::clamp((y + 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
+//             float x0 = std::clamp((x - 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
+//             float y0 = std::clamp((y - 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
+//             float x1 = std::clamp((x + 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
+//             float y1 = std::clamp((y + 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
 
-            cv::Rect_<float> bbox;
-            bbox.x = x0;
-            bbox.y = y0;
-            bbox.width = x1 - x0;
-            bbox.height = y1 - y0;
+//             cv::Rect_<float> bbox;
+//             bbox.x = x0;
+//             bbox.y = y0;
+//             bbox.width = x1 - x0;
+//             bbox.height = y1 - y0;
 
-            std::vector<float> kps;
-            for (int k = 0; k < NUM_KPS; k++) {
-                float kpsX = *(kps_ptr + 3 * k) * m_ratio_;
-                float kpsY = *(kps_ptr + 3 * k + 1) * m_ratio_;
-                float kpsS = *(kps_ptr + 3 * k + 2);
-                kpsX       = std::clamp(kpsX, 0.f, m_imgWidth_);
-                kpsY       = std::clamp(kpsY, 0.f, m_imgHeight_);
-                kps.push_back(kpsX);
-                kps.push_back(kpsY);
-                kps.push_back(kpsS);
-            }
+//             std::vector<float> kps;
+//             for (int k = 0; k < NUM_KPS; k++) {
+//                 float kpsX = *(kps_ptr + 3 * k) * m_ratio_;
+//                 float kpsY = *(kps_ptr + 3 * k + 1) * m_ratio_;
+//                 float kpsS = *(kps_ptr + 3 * k + 2);
+//                 kpsX       = std::clamp(kpsX, 0.f, m_imgWidth_);
+//                 kpsY       = std::clamp(kpsY, 0.f, m_imgHeight_);
+//                 kps.push_back(kpsX);
+//                 kps.push_back(kpsY);
+//                 kps.push_back(kpsS);
+//             }
 
-            bboxes.push_back(bbox);
-            labels.push_back(0); // All detected objects are people
-            scores.push_back(score);
-            kpss.push_back(kps);
-        }
-    }
+//             bboxes.push_back(bbox);
+//             labels.push_back(0); // All detected objects are people
+//             scores.push_back(score);
+//             kpss.push_back(kps);
+//         }
+//     }
 
-    // Run NMS
-    cv::dnn::NMSBoxesBatched(bboxes, scores, labels, PROBABILITY_THRESHOLD, NMS_THRESHOLD, indices);
+//     // Run NMS
+//     cv::dnn::NMSBoxesBatched(bboxes, scores, labels, PROBABILITY_THRESHOLD, NMS_THRESHOLD, indices);
 
-    std::vector<Object> objects;
+//     std::vector<Object> objects;
 
-    // Choose the top k detections
-    int cnt = 0;
-    for (auto& chosenIdx : indices) {
-        if (cnt >= TOP_K) {
-            break;
-        }
+//     // Choose the top k detections
+//     int cnt = 0;
+//     for (auto& chosenIdx : indices) {
+//         if (cnt >= TOP_K) {
+//             break;
+//         }
 
-        Object obj{};
-        obj.probability = scores[chosenIdx];
-        obj.label = labels[chosenIdx];
-        obj.rect = bboxes[chosenIdx];
-        obj.kps = kpss[chosenIdx];
-        objects.push_back(obj);
+//         Object obj{};
+//         obj.probability = scores[chosenIdx];
+//         obj.label = labels[chosenIdx];
+//         obj.rect = bboxes[chosenIdx];
+//         obj.kps = kpss[chosenIdx];
+//         objects.push_back(obj);
 
-        cnt += 1;
-    }
+//         cnt += 1;
+//     }
 
-    return objects;
-}
+//     return objects;
+// }
 
-std::vector<Object> YoloV8::postprocessDetect(std::vector<float> &featureVector) {
-    const auto& outputDims = m_trtEngine->getOutputDims();
-    auto numChannels = outputDims[0].d[1];
-    auto numAnchors = outputDims[0].d[2];
+// std::vector<Object> YoloV8::postprocessDetect(std::vector<float> &featureVector) {
+//     const auto& outputDims = m_trtEngine->getOutputDims();
+//     auto numChannels = outputDims[0].d[1];
+//     auto numAnchors = outputDims[0].d[2];
 
-    auto numClasses = CLASS_NAMES.size();
+//     auto numClasses = CLASS_NAMES.size();
 
-    std::vector<cv::Rect> bboxes;
-    std::vector<float> scores;
-    std::vector<int> labels;
-    std::vector<int> indices;
+//     std::vector<cv::Rect> bboxes;
+//     std::vector<float> scores;
+//     std::vector<int> labels;
+//     std::vector<int> indices;
 
-    cv::Mat output = cv::Mat(numChannels, numAnchors, CV_32F, featureVector.data());
-    output = output.t();
+//     cv::Mat output = cv::Mat(numChannels, numAnchors, CV_32F, featureVector.data());
+//     output = output.t();
 
-    // Get all the YOLO proposals
-    for (int i = 0; i < numAnchors; i++) {
-        auto rowPtr = output.row(i).ptr<float>();
-        auto bboxesPtr = rowPtr;
-        auto scoresPtr = rowPtr + 4;
-        auto maxSPtr = std::max_element(scoresPtr, scoresPtr + numClasses);
-        float score = *maxSPtr;
-        if (score > PROBABILITY_THRESHOLD) {
-            float x = *bboxesPtr++;
-            float y = *bboxesPtr++;
-            float w = *bboxesPtr++;
-            float h = *bboxesPtr;
+//     // Get all the YOLO proposals
+//     for (int i = 0; i < numAnchors; i++) {
+//         auto rowPtr = output.row(i).ptr<float>();
+//         auto bboxesPtr = rowPtr;
+//         auto scoresPtr = rowPtr + 4;
+//         auto maxSPtr = std::max_element(scoresPtr, scoresPtr + numClasses);
+//         float score = *maxSPtr;
+//         if (score > PROBABILITY_THRESHOLD) {
+//             float x = *bboxesPtr++;
+//             float y = *bboxesPtr++;
+//             float w = *bboxesPtr++;
+//             float h = *bboxesPtr;
 
-            float x0 = std::clamp((x - 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
-            float y0 = std::clamp((y - 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
-            float x1 = std::clamp((x + 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
-            float y1 = std::clamp((y + 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
+//             float x0 = std::clamp((x - 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
+//             float y0 = std::clamp((y - 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
+//             float x1 = std::clamp((x + 0.5f * w) * m_ratio_, 0.f, m_imgWidth_);
+//             float y1 = std::clamp((y + 0.5f * h) * m_ratio_, 0.f, m_imgHeight_);
 
-            int label = maxSPtr - scoresPtr;
-            cv::Rect_<float> bbox;
-            bbox.x = x0;
-            bbox.y = y0;
-            bbox.width = x1 - x0;
-            bbox.height = y1 - y0;
+//             int label = maxSPtr - scoresPtr;
+//             cv::Rect_<float> bbox;
+//             bbox.x = x0;
+//             bbox.y = y0;
+//             bbox.width = x1 - x0;
+//             bbox.height = y1 - y0;
 
-            bboxes.push_back(bbox);
-            labels.push_back(label);
-            scores.push_back(score);
-        }
-    }
+//             bboxes.push_back(bbox);
+//             labels.push_back(label);
+//             scores.push_back(score);
+//         }
+//     }
 
-    // Run NMS
-    cv::dnn::NMSBoxesBatched(bboxes, scores, labels, PROBABILITY_THRESHOLD, NMS_THRESHOLD, indices);
+//     // Run NMS
+//     cv::dnn::NMSBoxesBatched(bboxes, scores, labels, PROBABILITY_THRESHOLD, NMS_THRESHOLD, indices);
 
-    std::vector<Object> objects;
+//     std::vector<Object> objects;
 
-    // Choose the top k detections
-    int cnt = 0;
-    for (auto& chosenIdx : indices) {
-        if (cnt >= TOP_K) {
-            break;
-        }
+//     // Choose the top k detections
+//     int cnt = 0;
+//     for (auto& chosenIdx : indices) {
+//         if (cnt >= TOP_K) {
+//             break;
+//         }
 
-        Object obj{};
-        obj.probability = scores[chosenIdx];
-        obj.label = labels[chosenIdx];
-        obj.rect = bboxes[chosenIdx];
-        objects.push_back(obj);
+//         Object obj{};
+//         obj.probability = scores[chosenIdx];
+//         obj.label = labels[chosenIdx];
+//         obj.rect = bboxes[chosenIdx];
+//         objects.push_back(obj);
 
-        cnt += 1;
-    }
+//         cnt += 1;
+//     }
 
-    return objects;
-}
+//     return objects;
+// }
 
 /**
  * @brief Draws object labels on the given image.
