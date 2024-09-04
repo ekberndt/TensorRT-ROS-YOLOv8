@@ -120,6 +120,7 @@ class YoloV8Node : public rclcpp::Node
             } else {
                 // Add black images for missing topics
                 for (const std::string& topic : missing_topics) {
+                    // TODO: MAKE IMAGE SIZE DYNAMIC
                     images_map[topic] = cv::Mat::zeros(cv::Size(640, 640), CV_8UC3);
                 }
             }
@@ -140,18 +141,17 @@ class YoloV8Node : public rclcpp::Node
                std::cout << "No objects detected at time " << this->now().seconds() << std::endl;
             }
 
-            int i = 0;
+            size_t i = 0;
             for (const auto& batch : objects) {
                 if (!batch.empty()) {
-                    std::string topic = processing_topics[i];
+                    std::string topic = camera_topics_[i];
                     RCLCPP_INFO(this->get_logger(), "Detected %zu object(s) on %s", batch.size(), topic.c_str());
                     for (const auto& object : batch) {
                         std::cout << "\tDetected : " << yoloV8_.getClassName(object.label) << ", Prob: " << object.probability << std::endl;
                         RCLCPP_INFO(this->get_logger(), "\t%s: %f", yoloV8_.getClassName(object.label).c_str(), object.probability);
                     }
-                    i++;
                 }
-
+                i++;
             }
             // RCLCPP_INFO(this->get_logger(), "Detected %zu objects across all cameras", total_objects);
             // RCLCPP_INFO(this->get_logger(), "Typeid: %s", typeid(objects[0].boxMask).name());
