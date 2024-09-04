@@ -121,7 +121,7 @@ class YoloV8Node : public rclcpp::Node
                 // Add black images for missing topics
                 for (const std::string& topic : missing_topics) {
                     // TODO: MAKE IMAGE SIZE DYNAMIC
-                    images_map[topic] = cv::Mat::zeros(cv::Size(640, 640), CV_8UC3);
+                    images_map[topic] = cv::Mat::zeros(cv::Size(1056, 1056), CV_8UC3);
                 }
             }
 

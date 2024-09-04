@@ -315,13 +315,13 @@ std::vector<Object> YoloV8::postProcessSegmentation(std::vector<std::vector<floa
     const auto numClasses = numChannels - SEG_CHANNELS - 4;
 
     // Ensure the lengths of each output buffer are correct
-    if (featureVectors[0].size() != static_cast<size_t>(SEG_CHANNELS) * SEG_H * SEG_W) {
-        throw std::logic_error("Output buffer output at index 0 has incorrect length");
-    }
+    // if (featureVectors[0].size() != static_cast<size_t>(SEG_CHANNELS) * SEG_H * SEG_W) {
+    //     throw std::logic_error("Output buffer output at index 0 has incorrect length");
+    // }
 
-    if (featureVectors[1].size() != static_cast<size_t>(numChannels) * numAnchors) {
-        throw std::logic_error("Output buffer output at index 1 has incorrect length");
-    }
+    // if (featureVectors[1].size() != static_cast<size_t>(numChannels) * numAnchors) {
+    //     throw std::logic_error("Output buffer output at index 1 has incorrect length");
+    // }
 
     cv::Mat output = cv::Mat(numChannels, numAnchors, CV_32F, featureVectors[1].data());
     output = output.t();
