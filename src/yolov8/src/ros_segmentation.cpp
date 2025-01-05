@@ -61,7 +61,7 @@ class YoloV8Node : public rclcpp::Node
             sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
             for (const std::string& topic : camera_topics_) {
                 rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-                    topic + "/image", qos_profile,
+                    topic + "/image/ptr", qos_profile,
                     [this, topic](const sensor_msgs::msg::Image::SharedPtr msg)
                     {
                         this->addToBufferCallback(msg, topic);
