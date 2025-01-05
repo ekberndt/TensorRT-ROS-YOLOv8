@@ -55,24 +55,30 @@ class YoloV8Node : public rclcpp::Node
             }
 
             // Create subscribers and publishers for all cameras
+            rclcpp::QoS qos_profile = rclcpp::QoS(rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 1));
+            qos_profile.best_effort();
+            qos_profile.durability_volatile();
+            rclcpp::SubscriptionOptions sub_options;
+            sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
             for (const std::string& topic : camera_topics_) {
                 rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-                    topic + "/image", 10,
+                    topic + "/image/ptr", qos_profile,
                     [this, topic](const sensor_msgs::msg::Image::SharedPtr msg)
                     {
                         this->addToBufferCallback(msg, topic);
-                    }
+                    },
+                    sub_options
                 );
                 
                 subscriptions_.push_back(subscription_);
                 detection_publishers_[topic] = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>(
-                    "/yolov8" + topic + "/detections", 10
+                    "/yolov8" + topic + "/detections", qos_profile
                 );
                 image_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
-                    "/yolov8" + topic + "/image", 10
+                    "/yolov8" + topic + "/image", qos_profile
                 );
                 one_channel_mask_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
-                    "/yolov8" + topic + "/seg_mask_one_channel", 10
+                    "/yolov8" + topic + "/seg_mask_one_channel", qos_profile
                 );
             }
         }
@@ -87,10 +93,9 @@ class YoloV8Node : public rclcpp::Node
         * @param topic: The ROS topic the image message was published on
         */
         void addToBufferCallback(const sensor_msgs::msg::Image::SharedPtr &image_msg, const std::string topic) {
-            // TODO: Will this be deleted in memory since it is passed?
             std::cout << "Received image message on topic " << topic << std::endl;
             std::unique_lock<std::mutex> lock(buffer_mutex_);
-            current_buffer_[topic] = image_msg;
+            current_buffer_[topic] = image_msg; // No need to move since RMW will keep the message valid
 
             // Check if ready for batching
             if (current_buffer_.size() == camera_topics_.size()) {
@@ -104,7 +109,7 @@ class YoloV8Node : public rclcpp::Node
             std::unique_lock<std::mutex> lock(buffer_mutex_);
             std::swap(current_buffer_, processing_buffer_);
             // Clear the current buffer
-            current_buffer_.clear();
+            current_buffer_.clear(); // Allows RMW to deallocate image pointers
             lock.unlock();
 
             // Reset buffer timer
