@@ -57,6 +57,7 @@ class YoloV8Node : public rclcpp::Node
             // Create subscribers and publishers for all cameras
             rclcpp::QoS qos_profile(10);
             qos_profile.best_effort();
+            rclcpp::SubscriptionOptions sub_options;
             sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
             for (const std::string& topic : camera_topics_) {
                 rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
@@ -70,13 +71,13 @@ class YoloV8Node : public rclcpp::Node
                 
                 subscriptions_.push_back(subscription_);
                 detection_publishers_[topic] = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>(
-                    "/yolov8" + topic + "/detections", qos_profile, sub_options
+                    "/yolov8" + topic + "/detections", qos_profile
                 );
                 image_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
-                    "/yolov8" + topic + "/image", qos_profile, sub_options
+                    "/yolov8" + topic + "/image", qos_profile
                 );
                 one_channel_mask_publishers_[topic] = this->create_publisher<sensor_msgs::msg::Image>(
-                    "/yolov8" + topic + "/seg_mask_one_channel", qos_profile, sub_options
+                    "/yolov8" + topic + "/seg_mask_one_channel", qos_profile
                 );
             }
         }
