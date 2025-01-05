@@ -55,8 +55,9 @@ class YoloV8Node : public rclcpp::Node
             }
 
             // Create subscribers and publishers for all cameras
-            rclcpp::QoS qos_profile(10);
+            rclcpp::QoS = rclcpp::QoS(rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 1))
             qos_profile.best_effort();
+            qos_profile.durability_volatile();
             rclcpp::SubscriptionOptions sub_options;
             sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
             for (const std::string& topic : camera_topics_) {
