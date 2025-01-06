@@ -23,6 +23,8 @@ class YoloV8Node : public rclcpp::Node
             // Get ROS parameters
             this->declare_parameter("camera_topics", camera_topics_);
             this->get_parameter("camera_topics", camera_topics_);
+            this->declare_parameter("camera_topic_suffix", camera_topic_suffix_);
+            this->get_parameter("camera_topic_suffix", camera_topic_suffix_);
             this->declare_parameter("camera_buffer_hz", camera_buffer_hz_);
             this->get_parameter("camera_buffer_hz", camera_buffer_hz_);
             this->declare_parameter("visualize_masks", visualize_masks_);
@@ -55,20 +57,21 @@ class YoloV8Node : public rclcpp::Node
             }
 
             // Create subscribers and publishers for all cameras
-            rclcpp::QoS qos_profile = rclcpp::QoS(rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 1));
+            rclcpp::QoS qos_profile = rclcpp::QoS(rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 10));
             qos_profile.best_effort();
             qos_profile.durability_volatile();
             rclcpp::SubscriptionOptions sub_options;
             sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
             for (const std::string& topic : camera_topics_) {
                 rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-                    topic + "/image/ptr", qos_profile,
+                    topic + camera_topic_suffix_, qos_profile,
                     [this, topic](const sensor_msgs::msg::Image::SharedPtr msg)
                     {
                         this->addToBufferCallback(msg, topic);
                     },
                     sub_options
                 );
+                RCLCPP_INFO(this->get_logger(), "Subscribed to topic: %s", (topic + camera_topic_suffix_).c_str());
                 
                 subscriptions_.push_back(subscription_);
                 detection_publishers_[topic] = this->create_publisher<yolov8_interfaces::msg::Yolov8Detections>(
@@ -409,6 +412,7 @@ class YoloV8Node : public rclcpp::Node
         }
 
         std::vector<std::string> camera_topics_;
+        std::string camera_topic_suffix_;
         float camera_buffer_hz_ = 30;
         bool visualize_masks_;
         bool enable_one_channel_mask_;

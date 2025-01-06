@@ -30,7 +30,7 @@ def generate_launch_description():
     onnx_model_path = env("ONNX_MODEL")
     model_dir = os.path.join(models_dir, onnx_model_path)
     camera_topics = env.str("CAMERA_TOPICS").split(",")
-    print(camera_topics)
+    camera_topic_suffix = env("CAMERA_TOPIC_SUFFIX")
     camera_buffer_hz = env.float("CAMERA_BUFFER_HZ")
     visualize_masks = env.bool("VISUALIZE_MASKS")
     enable_one_channel_mask = env.bool("ENABLE_ONE_CHANNEL_MASK")
@@ -51,6 +51,7 @@ def generate_launch_description():
     print(f"onnx_model_path: {onnx_model_path}")
     print(f"model_dir: {model_dir}")
     print(f"camera_topics: {camera_topics}")
+    print(f"camera_topic_suffix: {camera_topic_suffix}")
     print(f"camera_buffer_hz: {camera_buffer_hz}")
     print(f"visualize_masks: {visualize_masks}")
     print(f"enable_one_channel_mask: {enable_one_channel_mask}")
@@ -80,6 +81,7 @@ def generate_launch_description():
             parameters=[{
                 'model_dir': model_dir,
                 'camera_topics': camera_topics,
+                'camera_topic_suffix': camera_topic_suffix,
                 'camera_buffer_hz': camera_buffer_hz,
                 'visualize_masks': visualize_masks,
                 'enable_one_channel_mask': enable_one_channel_mask,
